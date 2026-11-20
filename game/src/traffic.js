@@ -12,9 +12,9 @@ import * as THREE from 'three';
 import { createRandom, randInt, randRange, randPick } from './random.js';
 import { makeCar, updateCarWheels } from './cars.js';
 
-export const TRAFFIC_COUNT = 14;
-export const PARKED_COUNT = 8;
-export const PED_COUNT = 16;
+export const TRAFFIC_COUNT = 40;
+export const PARKED_COUNT = 32;
+export const PED_COUNT = 56;
 export const LANE_OFFSET = 3; // right-hand lane offset from the centreline
 export const ROAD_HALF = 6;
 
@@ -67,17 +67,36 @@ export function crossingNear(pos, lines, axis) {
   return null;
 }
 
+// Central road lines (|c| <= 144): where the garage, tower, bank and the
+// early missions are, so half the spawns cluster where the player actually
+// plays instead of spreading evenly over 11.7 km of road.
+function pickLineNearCentre(rng, lines) {
+  if (rng() < 0.5) {
+    const central = lines.filter((c) => Math.abs(c) <= 144);
+    return randPick(rng, central);
+  }
+  return randPick(rng, lines);
+}
+
+function pickRoadNearCentre(rng, lines) {
+  return {
+    axis: rng() < 0.5 ? 'x' : 'z',
+    line: pickLineNearCentre(rng, lines),
+    dir: rng() < 0.5 ? 1 : -1,
+  };
+}
+
 // --- Spawning --------------------------------------------------------------
-function spawnTrafficCar(state, scene, rng) {
+function spawnTrafficCar(state, scene, rng, fixed) {
   const half = state.city.half;
-  const road = pickRoad(rng, state.city.roadLines);
-  const along = randRange(rng, -half + 20, half - 20);
+  const road = fixed ? fixed.road : pickRoadNearCentre(rng, state.city.roadLines);
+  const along = fixed ? fixed.along : randRange(rng, -half + 20, half - 20);
   const p = roadPos(road, along);
   const kind = randPick(rng, CAR_KINDS);
   const color = randPick(rng, CAR_COLORS);
   const car = makeCar(scene, kind, color, new THREE.Vector3(p.x, 0, p.z), roadHeading(road));
   car.driver = 'traffic';
-  car.speed = randRange(rng, 6, 11);
+  car.speed = fixed && fixed.speed !== undefined ? fixed.speed : randRange(rng, 6, 11);
   return {
     car,
     road,
@@ -86,11 +105,11 @@ function spawnTrafficCar(state, scene, rng) {
   };
 }
 
-function spawnParkedCar(state, scene, rng) {
+function spawnParkedCar(state, scene, rng, fixed) {
   const half = state.city.half;
-  const road = pickRoad(rng, state.city.roadLines);
-  const along = randRange(rng, -half + 30, half - 30);
-  const side = rng() < 0.5 ? 1 : -1;
+  const road = fixed ? fixed.road : pickRoadNearCentre(rng, state.city.roadLines);
+  const along = fixed ? fixed.along : randRange(rng, -half + 30, half - 30);
+  const side = fixed && fixed.side !== undefined ? fixed.side : (rng() < 0.5 ? 1 : -1);
   let x;
   let z;
   if (road.axis === 'x') {
@@ -108,7 +127,24 @@ function spawnParkedCar(state, scene, rng) {
   }
   const kind = randPick(rng, CAR_KINDS);
   const color = randPick(rng, CAR_COLORS);
-  const car = makeCar(scene, kind, color, new THREE.Vector3(x, 0, z), roadHeading(road));
+  const heading = fixed && fixed.heading !== undefined ? fixed.heading : roadHeading(road);
+  const car = makeCar(scene, kind, color, new THREE.Vector3(x, 0, z), heading);
+  car.driver = null;
+  car.parked = true;
+  car.speed = 0;
+  return car;
+}
+
+// A parked car at an exact spot (spawn cluster); shifted along the road if
+// a random parked car already sits within 6 m of it.
+function spawnParkedCarAt(parkedCars, scene, rng, x, z, heading) {
+  let px = x;
+  for (const other of parkedCars) {
+    if (Math.hypot(other.pos.x - px, other.pos.z - z) < 6) px += 14;
+  }
+  const kind = randPick(rng, CAR_KINDS);
+  const color = randPick(rng, CAR_COLORS);
+  const car = makeCar(scene, kind, color, new THREE.Vector3(px, 0, z), heading);
   car.driver = null;
   car.parked = true;
   car.speed = 0;
@@ -118,7 +154,7 @@ function spawnParkedCar(state, scene, rng) {
 function sidewalkSpot(state, rng) {
   const half = state.city.half;
   const axis = rng() < 0.5 ? 'x' : 'z';
-  const line = randPick(rng, state.city.roadLines);
+  const line = pickLineNearCentre(rng, state.city.roadLines);
   const along = randRange(rng, -half + 10, half - 10);
   const side = rng() < 0.5 ? 1 : -1;
   const offset = ROAD_HALF + 2.5 + rng() * 4; // 8.5 - 12.5 m off the centreline
@@ -147,9 +183,9 @@ function getPedShared() {
   return pedShared;
 }
 
-function spawnPed(state, scene, rng) {
+function spawnPed(state, scene, rng, fixed) {
   const s = getPedShared();
-  const spot = sidewalkSpot(state, rng);
+  const spot = fixed ? { x: fixed.x, z: fixed.z } : sidewalkSpot(state, rng);
   const group = new THREE.Group();
   const shirt = s.mat(randPick(rng, PED_SHIRTS));
   const pants = s.mat(randPick(rng, PED_PANTS));
@@ -176,7 +212,7 @@ function spawnPed(state, scene, rng) {
     mesh: group,
     parts: { leftLeg, rightLeg, leftArm, rightArm, torso, head },
     pos: group.position, // same object as the mesh position
-    heading: randRange(rng, 0, Math.PI * 2),
+    heading: fixed && fixed.heading !== undefined ? fixed.heading : randRange(rng, 0, Math.PI * 2),
     speed: walkSpeed,
     walkSpeed,
     state: 'walk',
@@ -202,10 +238,74 @@ export function createTraffic(state, scene) {
   const peds = [];
   for (let i = 0; i < PED_COUNT; i += 1) peds.push(spawnPed(state, scene, rng));
 
+  // Spawn cluster: the player spawns at the garage front (-144, -126)
+  // facing south down the road at z = -108, so guarantee a busy first
+  // frame — 2 parked cars, 2 moving cars and 2 peds within ~30 m, all in
+  // view. (Positions are relative to the garage landmark, not hardcoded
+  // to a seed, so they hold for any ?seed=N city.)
+  const gx = state.city.landmarks.garage.pos.x;
+  const gz = state.city.landmarks.garage.pos.z;
+  parkedCars.push(spawnParkedCarAt(parkedCars, scene, rng, gx, gz + 28.4, Math.PI / 2));
+  parkedCars.push(spawnParkedCarAt(parkedCars, scene, rng, gx - 12, gz + 43.6, -Math.PI / 2));
+  traffic.push(spawnTrafficCar(state, scene, rng, {
+    road: { axis: 'x', line: gz + 36, dir: 1 }, along: gx - 20, speed: 10,
+  }));
+  traffic.push(spawnTrafficCar(state, scene, rng, {
+    road: { axis: 'x', line: gz + 36, dir: -1 }, along: gx + 20, speed: 10,
+  }));
+  peds.push(spawnPed(state, scene, rng, { x: gx + 4, z: gz + 28, heading: Math.PI / 2 }));
+  peds.push(spawnPed(state, scene, rng, { x: gx - 6, z: gz + 40, heading: -Math.PI / 2 }));
+
   state.traffic = traffic;
   state.parkedCars = parkedCars;
   state.peds = peds;
   return { traffic, parkedCars, peds };
+}
+
+// --- Near-player respawn (density bubble) --------------------------------
+// Uniform spawns over 11.7 km of road read as empty streets: a car every
+// ~300 m means a 60 m driving view usually holds nothing. So traffic cars
+// and peds that drift >200 m from the player respawn on a road/sidewalk
+// 60-120 m around the player (seeded rng, never closer than ~50 m, so
+// nothing pops in on top of the camera). The bubble keeps a fixed car/ped
+// count while the streets around the player always read as busy. Parked
+// cars never respawn: they are stealable, and teleporting one would strand
+// the player mid-theft.
+function respawnTrafficNearPlayer(state, t, rng) {
+  const half = state.city.half;
+  const axis = rng() < 0.5 ? 'x' : 'z';
+  const perp = axis === 'x' ? state.player.pos.z : state.player.pos.x;
+  const alongC = axis === 'x' ? state.player.pos.x : state.player.pos.z;
+  const nearLines = state.city.roadLines.filter((c) => Math.abs(c - perp) <= 144);
+  const road = {
+    axis,
+    line: randPick(rng, nearLines.length ? nearLines : state.city.roadLines),
+    dir: rng() < 0.5 ? 1 : -1,
+  };
+  const offset = (rng() < 0.5 ? -1 : 1) * randRange(rng, 60, 120);
+  const along = Math.max(-half + 20, Math.min(half - 20, alongC + offset));
+  const p = roadPos(road, along);
+  t.road = road;
+  t.car.pos.x = p.x;
+  t.car.pos.z = p.z;
+  t.car.heading = roadHeading(road);
+  t.car.speed = Math.min(t.car.speed, t.targetSpeed);
+  t.turnCooldown = randRange(rng, 0, 2);
+}
+
+function sidewalkSpotNearPlayer(state, rng) {
+  const half = state.city.half;
+  const axis = rng() < 0.5 ? 'x' : 'z';
+  const perp = axis === 'x' ? state.player.pos.z : state.player.pos.x;
+  const alongC = axis === 'x' ? state.player.pos.x : state.player.pos.z;
+  const nearLines = state.city.roadLines.filter((c) => Math.abs(c - perp) <= 144);
+  const line = randPick(rng, nearLines.length ? nearLines : state.city.roadLines);
+  const offset = (rng() < 0.5 ? -1 : 1) * randRange(rng, 40, 100);
+  const along = Math.max(-half + 10, Math.min(half - 10, alongC + offset));
+  const side = rng() < 0.5 ? 1 : -1;
+  const off = ROAD_HALF + 2.5 + rng() * 4; // 8.5 - 12.5 m off the centreline
+  if (axis === 'x') return { x: along, z: line + side * off };
+  return { x: line + side * off, z: along };
 }
 
 // --- Per-step updates ------------------------------------------------------
@@ -287,6 +387,12 @@ function updateTrafficCar(state, t, dt, rng) {
     car.pos.z = Math.max(-half, Math.min(half, car.pos.z));
     t.turnCooldown = 2;
   }
+
+  // Density bubble: a car that has drifted far from the player is useless
+  // empty-road filler — bring it back near the player instead.
+  const pdx2 = state.player.pos.x - car.pos.x;
+  const pdz2 = state.player.pos.z - car.pos.z;
+  if (Math.hypot(pdx2, pdz2) > 200) respawnTrafficNearPlayer(state, t, rng);
 
   car.mesh.position.copy(car.pos);
   car.mesh.rotation.y = car.heading;
@@ -378,6 +484,17 @@ function updatePed(state, ped, dt, rng) {
         wantedAdd(1, 'hit pedestrian');
       }
     }
+  }
+
+  // Density bubble (same as traffic cars): a ped far from the player
+  // respawns on a nearby sidewalk instead of walking empty streets.
+  // Never teleports a knocked-down ped.
+  if (ped.state !== 'down' && dist > 200) {
+    const spot = sidewalkSpotNearPlayer(state, rng);
+    ped.pos.x = spot.x;
+    ped.pos.z = spot.z;
+    ped.heading = randRange(rng, 0, Math.PI * 2);
+    ped.stateTimer = randRange(rng, 2, 8);
   }
 
   // Walk cycle + mesh sync (flat while down, upright otherwise).

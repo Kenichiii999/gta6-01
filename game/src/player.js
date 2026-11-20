@@ -55,6 +55,7 @@ export function createPlayer(state, scene) {
 
   let speedSmooth = 0;
   let walkPhase = 0;
+  let spawnFaced = false;
   const half = state.city.half;
   const limit = half + 56; // 380; the ocean is the wall
 
@@ -94,6 +95,20 @@ export function createPlayer(state, scene) {
 
   function update(dt, axes, running, camYaw) {
     const player = state.player;
+    // Spawn fix (once): a fresh start puts the player at the garage front
+    // facing north (heading PI) into the garage wall. Face south (heading
+    // 0) down the road instead, camera behind, so the first frame shows
+    // road + parked/traffic cars + peds. Only fires at the exact spawn
+    // spot on the first play update — a save reload elsewhere is untouched.
+    if (!spawnFaced) {
+      spawnFaced = true;
+      const g = state.city.landmarks.garage.pos;
+      if (Math.hypot(player.pos.x - g.x, player.pos.z - (g.z + 18)) < 2
+        && Math.abs(player.heading - Math.PI) < 0.01) {
+        player.heading = 0;
+        state.camera.yaw = Math.PI;
+      }
+    }
     const hasInput = axes.x !== 0 || axes.y !== 0;
     const targetSpeed = hasInput ? (running ? PLAYER.runSpeed : PLAYER.walkSpeed) : 0;
     const maxDelta = PLAYER.accel * dt;
