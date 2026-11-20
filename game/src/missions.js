@@ -396,8 +396,13 @@ export function updateMissions(state, dt) {
   switch (mission.id) {
     case 'first-wheels': {
       if (mission.stepIndex === 0) {
-        // Any car entry counts as the "steal" — parked cars included.
-        if (sys.flags.stolen || state.stats.carsStolen > 0 || state.player.car) {
+        // The steal only counts while the player is actually sitting
+        // in a car at check time: a transient enter/exit flicker
+        // inside one frame must not flip the step while the player
+        // ends up on foot. (enterCar sets the stolen counter and the
+        // stolen flag in the same call that puts the player in the
+        // car, so "in a car" subsumes both.)
+        if (state.player.car) {
           advanceStep(state);
         }
       } else if (dist2D(px, pz, sys.garageFront.x, sys.garageFront.z) <= ARRIVE_DIST) {

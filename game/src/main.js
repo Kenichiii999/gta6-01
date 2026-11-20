@@ -236,6 +236,11 @@ function runGame() {
       while (accumulator >= STEP && (state.screen === SCREEN_TITLE || state.screen === SCREEN_PLAY)) {
         step();
         accumulator -= STEP;
+        // One-shot inputs (E interact, F punch) are consumed by the
+        // first simulation step of the frame: a slow frame runs several
+        // catch-up steps, and re-firing E/F in each would toggle
+        // enter/exit or punch several times per single press.
+        frameActions &= ~(ACTION_INTERACT | ACTION_PUNCH);
       }
     } else {
       accumulator = 0;

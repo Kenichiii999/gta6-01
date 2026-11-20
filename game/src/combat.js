@@ -11,7 +11,6 @@ export const PUNCH_ARC = 0.5; // cos of the half-angle, ~60 degrees each side
 export const PUNCH_COOLDOWN = 0.35; // s
 export const PUNCH_COP_DAMAGE = 15;
 export const PUNCH_PED_DAMAGE = 25;
-export const POLICE_SEE_CRIME_DIST = 60; // m
 export const LUNGE_TIME = 0.18; // s
 export const LUNGE_DIST = 0.35; // m
 
@@ -87,7 +86,10 @@ export function updateCombat(state, dt, input) {
   let bestKind = null;
   let bestDist = PUNCH_RANGE;
   const consider = (entry, kind) => {
-    if (kind === 'cop' && entry.down) return;
+    // Never punch someone already knocked down flat: combat sets
+    // .down, and traffic then carries the flat state as .state ===
+    // 'down' with .down cleared — either flag means "lying flat".
+    if (entry.down || entry.state === 'down') return;
     const pos = entryPos(entry);
     if (!pos) return;
     const dx = pos.x - state.player.pos.x;
@@ -114,16 +116,12 @@ export function updateCombat(state, dt, input) {
     best.health = (best.health ?? 100) - PUNCH_PED_DAMAGE;
     if (best.health <= 0) best.down = true;
     else best.fleeing = true;
-    // Assault witnessed by police within 60 m: +1 star, once.
-    for (const u of state.police) {
-      if (u.remove || u.down) continue;
-      const pos = entryPos(u);
-      if (!pos) continue;
-      const d = Math.hypot(pos.x - state.player.pos.x, pos.z - state.player.pos.z);
-      if (d <= POLICE_SEE_CRIME_DIST) {
-        addWanted(state, 1, 'assault');
-        break;
-      }
+    // Assault is always a crime, witnessed or not: +1 star, once per
+    // pedestrian. At 0 stars no police exist to witness it, so a
+    // witness rule would make the wanted level nearly unreachable.
+    if (!best.crimeStarred) {
+      best.crimeStarred = true;
+      addWanted(state, 1, 'assault');
     }
   }
 }
