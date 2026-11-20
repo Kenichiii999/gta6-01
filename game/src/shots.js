@@ -9,7 +9,7 @@
 // does. The shape (return the screen to draw) stays the same.
 import { STEP } from './config.js';
 import { SCREEN_PLAY, SCREEN_TITLE } from './render.js';
-import { enterCar, updateDrive } from './cars.js';
+import { enterCar, exitCar, updateDrive } from './cars.js';
 import { updateTraffic } from './traffic.js';
 import { addWanted, updatePolice } from './police.js';
 import { startMission, updateMissions } from './missions.js';
@@ -119,6 +119,28 @@ function hideBanner(state) {
   } catch { /* HUD must never break staging */ }
 }
 
+// Hide the controls hint for staged shots via the HUD override, so it
+// never smudges the frame (the auto-hide would still show it this
+// early in a session).
+function hideHint(state) {
+  try {
+    if (state._hud && typeof state._hud.setHintOverride === 'function') state._hud.setHintOverride('hide');
+  } catch { /* HUD must never break staging */ }
+}
+
+// Complete mission 1 for real in the staged play, so the cash readout
+// is not $0: steal a parked car (the game's own enterCar), park it at
+// the garage front so the mission completes for +$500, then step out.
+// The shot's own mission is started explicitly after this.
+function completeMissionOne(state) {
+  startMission(state, 0);
+  const f = state._missions.garageFront;
+  putPlayerInCar(state, f.x, f.z, 0);
+  simulate(state, 4, null); // step 0 -> 1 (in a car) -> complete at garage
+  exitCar(state);
+  simulate(state, 2, null);
+}
+
 // --- The four shots -------------------------------------------------------
 
 // 1-city.jpg — city + driving (the cover). Danny drives east along the
@@ -127,15 +149,49 @@ function hideBanner(state) {
 function stageCity(state) {
   state.screen = SCREEN_PLAY;
   state.time = 0;
+  completeMissionOne(state); // cash $500, mission 2 to start below
   startMission(state, 1); // Payday Pickup — beacon at the tower drop
   putPlayerInCar(state, -180, 39, Math.PI / 2);
   // Drive 4 s straight east along the road toward the tower so it
   // looms large ahead (the car stops ~90 m short — the drop at (0,24)
   // is never reached, so the beacon stays on the tower).
   simulate(state, 240, { x: 0, z: 36 });
+  // Busy street: pull traffic and pedestrians onto the road ahead of
+  // the car so the cover shows a living street, not an empty road.
+  const p = state.player.pos;
+  [
+    { x: p.x + 22, z: 33 },
+    { x: p.x + 42, z: 39 },
+    { x: p.x + 62, z: 33 },
+  ].forEach((s, i) => {
+    const t = state.traffic[i];
+    if (!t) return;
+    t.car.pos.set(s.x, 0, s.z);
+    t.car.heading = Math.PI / 2;
+    t.car.speed = 10;
+    t.car.mesh.position.copy(t.car.pos);
+    t.car.mesh.rotation.y = Math.PI / 2;
+  });
+  [
+    { x: p.x + 18, z: 26, heading: Math.PI / 2 },
+    { x: p.x + 34, z: 46, heading: -Math.PI / 2 },
+    { x: p.x + 52, z: 26, heading: 0 },
+  ].forEach((s, i) => {
+    const ped = state.peds[i];
+    if (!ped) return;
+    ped.pos.set(s.x, 0, s.z);
+    ped.heading = s.heading;
+    ped.mesh.rotation.y = s.heading;
+    ped.state = 'walk';
+    ped.stateTimer = 6;
+  });
+  simulateAmbient(state, 20);
   const h = state.player.heading;
-  frameCamera(state, h + Math.PI, 0.34, 12);
+  // Level camera (pitch ~0.12): the tower's neon sign sits ~28 m up,
+  // and the old steep chase pitch put it above the frame top.
+  frameCamera(state, h + Math.PI, 0.12, 12);
   hideBanner(state);
+  hideHint(state);
   state.shakeTime = 0;
   return { screen: SCREEN_PLAY };
 }
@@ -147,7 +203,10 @@ function stageCity(state) {
 function stageStreet(state) {
   state.screen = SCREEN_PLAY;
   state.time = 0;
-  startMission(state, 0); // First Wheels — beacon at the garage
+  // Danny already delivered the stolen car (+$500) and stepped out in
+  // front of the garage; mission 2 is live.
+  completeMissionOne(state);
+  startMission(state, 1); // Payday Pickup — cash $500 on the HUD
   state.player.pos.set(-144, 0, -108);
   state.player.heading = Math.PI;
   if (state.player.mesh) {
@@ -171,7 +230,12 @@ function stageStreet(state) {
     ped.stateTimer = 6;
   });
   simulate(state, 120, null);
-  frameCamera(state, 0, 0.42, 9);
+  // Level camera (pitch ~0.12) pulled back a little: the garage's neon
+  // sign sits high on the south face, and the old steep pitch put it
+  // above the frame top.
+  frameCamera(state, 0, 0.12, 16);
+  hideBanner(state);
+  hideHint(state);
   state.shakeTime = 0;
   return { screen: SCREEN_PLAY };
 }
@@ -183,6 +247,7 @@ function stageStreet(state) {
 function stageChase(state) {
   state.screen = SCREEN_PLAY;
   state.time = 0;
+  completeMissionOne(state); // cash $500
   startMission(state, 0); // First Wheels — objective line + HUD heat
   putPlayerInCar(state, -180, -33, Math.PI / 2);
   addWanted(state, 2, 'stolen car');
@@ -202,6 +267,7 @@ function stageChase(state) {
   // inside the block south of it.)
   frameCamera(state, 1.92, 0.3, 16);
   hideBanner(state);
+  hideHint(state);
   state.shakeTime = 0;
   return { screen: SCREEN_PLAY };
 }
@@ -213,6 +279,7 @@ function stageChase(state) {
 function stageHeist(state) {
   state.screen = SCREEN_PLAY;
   state.time = 0;
+  completeMissionOne(state); // cash $500
   startMission(state, 4); // Bay Heist — beacon at the bank
   // On the z=180 road south of the bank, nose toward the bank front
   // (20 m short of it, so mission step 0 does not advance).
@@ -227,6 +294,8 @@ function stageHeist(state) {
   // Pulled back and levelled so the bank roofline — and the beacon
   // pillar rising from it — fit inside the frame.
   frameCamera(state, 0, 0.12, 28);
+  hideBanner(state);
+  hideHint(state);
   state.shakeTime = 0;
   return { screen: SCREEN_PLAY };
 }
