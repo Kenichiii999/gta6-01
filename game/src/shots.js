@@ -151,11 +151,15 @@ function stageCity(state) {
   state.time = 0;
   completeMissionOne(state); // cash $500, mission 2 to start below
   startMission(state, 1); // Payday Pickup — beacon at the tower drop
-  putPlayerInCar(state, -180, 39, Math.PI / 2);
-  // Drive 4 s straight east along the road toward the tower so it
-  // looms large ahead (the car stops ~90 m short — the drop at (0,24)
-  // is never reached, so the beacon stays on the tower).
-  simulate(state, 240, { x: 0, z: 36 });
+  // Start close to the tower (~68 m west of it) and drive a short
+  // burst east, so the car stops ~60 m short of the tower instead of
+  // ~90 m: from 90 m out the tower's west-face sign reads as a sliver
+  // behind the foreground block, but from ~60 m the west face reads
+  // nearly head-on — and the sign sits low enough in the frame to
+  // clear the HUD row. The drop at (0,24) stays ~60 m away, so it is
+  // never collected and the beacon stays on the tower.
+  putPlayerInCar(state, -68, 39, Math.PI / 2);
+  simulate(state, 60, { x: 0, z: 36 });
   // Busy street: pull traffic and pedestrians onto the road ahead of
   // the car so the cover shows a living street, not an empty road.
   const p = state.player.pos;
@@ -187,9 +191,13 @@ function stageCity(state) {
   });
   simulateAmbient(state, 20);
   const h = state.player.heading;
-  // Level camera (pitch ~0.12): the tower's neon sign sits ~28 m up,
-  // and the old steep chase pitch put it above the frame top.
-  frameCamera(state, h + Math.PI, 0.12, 12);
+  // Near-level camera (pitch ~0.06) swung ~20° toward the tower
+  // (north): the car stays centre-frame while the tower — and its
+  // neon sign at ~29 m — sit in frame left of it. The old
+  // straight-behind framing put the tower at the frame edge, half
+  // hidden behind the foreground block; a steeper pitch would push
+  // the sign above the frame top from this closer viewpoint.
+  frameCamera(state, h + Math.PI + 0.35, 0.06, 12);
   hideBanner(state);
   hideHint(state);
   state.shakeTime = 0;
