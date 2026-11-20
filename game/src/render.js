@@ -4,7 +4,6 @@
 import * as THREE from 'three';
 import { CAMERA, PALETTE } from './config.js';
 import { makeSkyTexture } from './textures.js';
-import { createNeonSigns } from './signage.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
@@ -19,7 +18,7 @@ export function createRenderer(canvas) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.12;
+  renderer.toneMappingExposure = 1.05;
 
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(PALETTE.fog, 120, 900);
@@ -112,16 +111,8 @@ export function createRenderer(canvas) {
     sky.position.set(camera.position.x, 0, camera.position.z);
   }
 
-  // Paint one frame: drift the clouds, then render the scene. Neon
-  // signage needs the city, which only exists once main.js has built it,
-  // so it is built once, lazily, on the first frame that has one — and a
-  // failure there must never break the frame.
-  let signsBuilt = false;
+  // Paint one frame: drift the clouds, then render the scene.
   function draw(state) {
-    if (!signsBuilt && state && state.city) {
-      signsBuilt = true;
-      try { createNeonSigns(scene, state.city); } catch { /* signage is cosmetic */ }
-    }
     updateClouds(1 / 60);
     renderer.render(scene, camera);
   }

@@ -11,7 +11,7 @@ export const PUNCH_ARC = 0.5; // cos of the half-angle, ~60 degrees each side
 export const PUNCH_COOLDOWN = 0.35; // s
 export const PUNCH_COP_DAMAGE = 15;
 export const PUNCH_PED_DAMAGE = 25;
-export const POLICE_SEE_CRIME_DIST = 60; // m — retained (exported tuning); ped assault no longer needs a witness, see below
+export const POLICE_SEE_CRIME_DIST = 60; // m
 export const LUNGE_TIME = 0.18; // s
 export const LUNGE_DIST = 0.35; // m
 
@@ -88,8 +88,6 @@ export function updateCombat(state, dt, input) {
   let bestDist = PUNCH_RANGE;
   const consider = (entry, kind) => {
     if (kind === 'cop' && entry.down) return;
-    // Never punch a ped who is already down flat.
-    if (kind === 'ped' && (entry.down || entry.state === 'down')) return;
     const pos = entryPos(entry);
     if (!pos) return;
     const dx = pos.x - state.player.pos.x;
@@ -116,14 +114,16 @@ export function updateCombat(state, dt, input) {
     best.health = (best.health ?? 100) - PUNCH_PED_DAMAGE;
     if (best.health <= 0) best.down = true;
     else best.fleeing = true;
-    // Any ped assault is a crime, witnessed or not: +1 star, once per
-    // ped. (Before, the star needed a police unit within 60 m — and no
-    // police exist at 0 stars, so punching a ped never raised heat and
-    // mission 3 was nearly unreachable.) One star per victim keeps
-    // escalation sane: beating one ped down is +1, not +4.
-    if (!best.assaultReported) {
-      best.assaultReported = true;
-      addWanted(state, 1, 'assault');
+    // Assault witnessed by police within 60 m: +1 star, once.
+    for (const u of state.police) {
+      if (u.remove || u.down) continue;
+      const pos = entryPos(u);
+      if (!pos) continue;
+      const d = Math.hypot(pos.x - state.player.pos.x, pos.z - state.player.pos.z);
+      if (d <= POLICE_SEE_CRIME_DIST) {
+        addWanted(state, 1, 'assault');
+        break;
+      }
     }
   }
 }

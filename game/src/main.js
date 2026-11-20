@@ -207,21 +207,11 @@ function runGame() {
       updateDrive(state, STEP, input);
     }
     // E-key: enter / exit a car ('entered' | 'exited' | 'too-fast' | null).
-    // One-shot: consume INTERACT after the first step that uses it, or a
-    // slow frame's fixed-step catch-up (N steps) would toggle enter/exit
-    // N times per single press (even N = a complete no-op).
-    if (frameActions & ACTION_INTERACT) {
-      handleCarInteract(state);
-      frameActions &= ~ACTION_INTERACT;
-    }
+    if (frameActions & ACTION_INTERACT) handleCarInteract(state);
     // Slice C: the punch. Must run AFTER player.update(), because the
     // punch lunge offsets the player mesh and player.update() re-asserts
     // the mesh position every step.
     updateCombat(state, STEP, frameActions);
-    // Same one-shot rule for PUNCH: consume it after the first step, so
-    // a slow frame cannot re-fire the punch (its cooldown already blunts
-    // this, but the bit itself must not survive the frame).
-    frameActions &= ~ACTION_PUNCH;
     updateTraffic(state, STEP);
     // Slice C: police chase / arrest / busted / wasted.
     updatePolice(state, STEP);

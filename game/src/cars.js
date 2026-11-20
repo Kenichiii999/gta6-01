@@ -365,34 +365,11 @@ export function updateDrive(state, dt, input) {
   car._fwdZ = fz;
 
   // Collisions: buildings bounce the car back and cost 1 health.
-  const hitBuilding = collideBuildings(state, car);
-  if (hitBuilding) {
+  if (collideBuildings(state, car)) {
     car.speed *= -0.25;
     car.health = Math.max(0, car.health - 1);
   }
   collideOtherCars(state, car);
-
-  // Stuck nudge: throttle held, speed ~0, pinned against a building for
-  // ~1 s. Back the car 3 m out and yaw it away from the wall so driving
-  // off works instead of wedging forever at speed 0. Cooldown 2 s so it
-  // cannot fire repeatedly. car._stuckNudgedAt (state.time) is the hook
-  // for a HUD hint ("Stuck? Reversing…") — hud.js owns the HUD, so this
-  // slice only records the moment.
-  if (hitBuilding && axes.y !== 0 && Math.abs(car.speed) < 0.5) {
-    car._stuckTime = (car._stuckTime || 0) + dt;
-  } else if (Math.abs(car.speed) > 1 || axes.y === 0) {
-    car._stuckTime = 0;
-  }
-  car._stuckCooldown = Math.max(0, (car._stuckCooldown || 0) - dt);
-  if ((car._stuckTime || 0) >= 1 && car._stuckCooldown <= 0) {
-    car.pos.x -= car._fwdX * 3;
-    car.pos.z -= car._fwdZ * 3;
-    car.heading += 0.35;
-    car.speed = 0;
-    car._stuckTime = 0;
-    car._stuckCooldown = 2;
-    car._stuckNudgedAt = state.time;
-  }
 
   // World bounds: same as on foot (the ocean is the wall).
   const half = state.city.half;
