@@ -8,9 +8,8 @@
 // title scene instead of running the loop, paints it twice and sets
 // window.__shotReady for a screenshot.
 //
-// SLICE A — foundation only. The per-step calls for slices B/C/D
-// (vehicles, traffic, police, combat, missions, HUD, audio) are marked
-// EXTENSION POINT below and must not be called until those modules exist.
+// SLICES A–D wired: foundation + vehicles/traffic + police/combat +
+// missions/HUD/audio, per DESIGN.md §2.4.
 import * as THREE from 'three';
 import { CAMERA, STEP } from './config.js';
 import { createRandom } from './random.js';
@@ -22,6 +21,9 @@ import { createTraffic, updateTraffic } from './traffic.js';
 import { handleCarInteract, updateDrive } from './cars.js';
 import { createPolice, updatePolice } from './police.js';
 import { updateCombat } from './combat.js';
+import { createMissions, startMission, updateMissions } from './missions.js';
+import { createHud, updateHud } from './hud.js';
+import { createAudio, updateAudio } from './audio.js';
 import { loadSave, saveGame } from './save.js';
 import { stageShot } from './shots.js';
 
@@ -40,12 +42,6 @@ const status = document.getElementById('status');
 const hudEl = document.getElementById('hud');
 const titleEl = document.getElementById('title');
 const pausedEl = document.getElementById('paused');
-const cashEl = document.getElementById('cash');
-const healthFillEl = document.getElementById('health-fill');
-const wantedEl = document.getElementById('wanted');
-const objectiveEl = document.getElementById('objective');
-const minimapEl = document.getElementById('minimap');
-const minimapCtx = minimapEl.getContext('2d');
 const continueBtn = document.getElementById('continue-btn');
 const startBtn = document.getElementById('start-btn');
 
@@ -92,62 +88,19 @@ const state = {
 const player = createPlayer(state, renderer.scene);
 window.__game = state;
 
-// Slice B: vehicles + traffic. Slice C: police + combat. (Slice D adds
-// createMissions / createHud / createAudio here, in that order.)
+// Slice B: vehicles + traffic. Slice C: police + combat. Slice D:
+// missions + HUD + audio (hud.js owns the HUD; see §9.11).
 createTraffic(state, renderer.scene);
 createPolice(state, renderer.scene);
+createMissions(state, renderer.scene);
+createHud(state, renderer.scene);
+createAudio(state);
 
-// --- HUD (slice-A skeleton) ------------------------------------------------
-// Slice D replaces this whole section with hud.js (banner, speed, mute
-// indicator, fuller minimap) and main.js then calls state._hud instead.
-// Until then the local versions below own the HUD, per the foundation spec.
-function drawMinimap() {
-  const size = 180;
-  const half = city.half + 60;
-  const toMap = (v) => ((v + half) / (half * 2)) * size;
-  const ctx = minimapCtx;
-  ctx.fillStyle = '#0d1b26';
-  ctx.fillRect(0, 0, size, size);
-  // Roads.
-  ctx.strokeStyle = '#5a6a72';
-  ctx.lineWidth = 2;
-  for (const c of city.roadLines) {
-    ctx.beginPath(); ctx.moveTo(toMap(-half), toMap(c)); ctx.lineTo(toMap(half), toMap(c)); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(toMap(c), toMap(-half)); ctx.lineTo(toMap(c), toMap(half)); ctx.stroke();
-  }
-  // Beach strip, then ocean.
-  ctx.fillStyle = '#e8d49a';
-  ctx.fillRect(0, toMap(half), size, size - toMap(half));
-  ctx.fillStyle = '#1e7fa8';
-  ctx.fillRect(0, toMap(half + 40), size, size - toMap(half + 40));
-  // Garage dot.
-  ctx.fillStyle = '#ff9a3d';
-  ctx.beginPath(); ctx.arc(toMap(garage.pos.x), toMap(garage.pos.z), 4, 0, Math.PI * 2); ctx.fill();
-  // Player arrow.
-  const px = toMap(state.player.pos.x);
-  const py = toMap(state.player.pos.z);
-  ctx.save();
-  ctx.translate(px, py);
-  ctx.rotate(state.player.heading);
-  ctx.fillStyle = '#ffd23d';
-  ctx.beginPath();
-  ctx.moveTo(0, -7); ctx.lineTo(5, 6); ctx.lineTo(-5, 6); ctx.closePath();
-  ctx.fill();
-  ctx.restore();
-}
-
-function updateHud() {
-  cashEl.textContent = `$${state.cash.toLocaleString('en-US')}`;
-  healthFillEl.style.width = `${Math.max(0, Math.min(100, (state.health / state.maxHealth) * 100))}%`;
-  wantedEl.textContent = '★'.repeat(state.wanted) + '☆'.repeat(5 - state.wanted);
-  if (state.gameComplete) {
-    objectiveEl.textContent = 'NEON BAY LEGEND — you own this city.';
-  } else if (state.mission) {
-    objectiveEl.textContent = `${state.mission.title} — ${state.mission.text}`;
-  } else {
-    objectiveEl.textContent = 'Talk to Vera at the garage. First mission coming soon.';
-  }
-  drawMinimap();
+// --- HUD (slice D: hud.js owns it) ----------------------------------------
+// The local updateHud/drawMinimap skeleton is gone (§9.11): hud.js is the
+// only code that draws the HUD / minimap. This helper just calls it.
+function hudUpdate() {
+  updateHud(state, STEP);
 }
 
 // --- Screens ---------------------------------------------------------------
@@ -184,19 +137,19 @@ function startGame(fromSave) {
   state.player.onFoot = true;
   state.player.car = null;
   state.player.speed = 0;
-  // EXTENSION POINT (slice D): if no mission is active and
-  // state.missionIndex < 5, startMission(state, state.missionIndex) here —
-  // mission 1 ("First Wheels") auto-starts when play begins.
+  // Slice D: mission 1 ("First Wheels") auto-starts when play begins —
+  // but never when the game is already complete.
+  if (state.missionIndex < 5) startMission(state, state.missionIndex);
   showScreen(SCREEN_PLAY);
   status.textContent = 'Playing. WASD to move, Shift to run, drag to look around.';
-  updateHud();
+  hudUpdate();
 }
 
 // --- Shot mode -------------------------------------------------------------
 function runShot(name) {
   const staged = stageShot(name, state);
   showScreen(staged.screen);
-  updateHud();
+  hudUpdate();
   let painted = 0;
   function paint() {
     renderer.updateCamera(state.player.pos, state.camera, STEP, state.shakeTime);
@@ -262,8 +215,9 @@ function runGame() {
     updateTraffic(state, STEP);
     // Slice C: police chase / arrest / busted / wasted.
     updatePolice(state, STEP);
-    // EXTENSION POINT (slice D): updateMissions(state, STEP).
-    // EXTENSION POINT (slice D): updateAudio(state, STEP).
+    // Slice D: mission objectives + audio layers.
+    updateMissions(state, STEP);
+    updateAudio(state, STEP);
 
     // Autosave every 10 s of play.
     saveTimer += STEP;
@@ -291,7 +245,7 @@ function runGame() {
     if (state.shakeTime > 0) state.shakeTime = Math.max(0, state.shakeTime - STEP);
     renderer.updateCamera(state.player.pos, state.camera, STEP, state.shakeTime);
     renderer.draw(state);
-    if (state.screen === SCREEN_PLAY) updateHud();
+    if (state.screen === SCREEN_PLAY) hudUpdate();
   }
 
   startBtn.addEventListener('click', () => startGame(false));
