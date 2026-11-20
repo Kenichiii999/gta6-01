@@ -204,9 +204,9 @@ function stageStreet(state) {
   state.screen = SCREEN_PLAY;
   state.time = 0;
   // Danny already delivered the stolen car (+$500) and stepped out in
-  // front of the garage; mission 2 is live.
+  // front of the garage; mission 1 is live.
   completeMissionOne(state);
-  startMission(state, 1); // Payday Pickup — cash $500 on the HUD
+  startMission(state, 0); // First Wheels — cash $500 on the HUD
   state.player.pos.set(-144, 0, -108);
   state.player.heading = Math.PI;
   if (state.player.mesh) {
@@ -282,18 +282,25 @@ function stageHeist(state) {
   completeMissionOne(state); // cash $500
   startMission(state, 4); // Bay Heist — beacon at the bank
   // On the z=180 road south of the bank, nose toward the bank front
-  // (20 m short of it, so mission step 0 does not advance).
+  // (about 14 m short of it, so mission step 0 does not advance).
   putPlayerInCar(state, 144, 186, Math.PI);
   addWanted(state, 1, 'stolen car');
-  simulate(state, 30, { x: 144, z: 170 });
+  // Drive 1 s up the road toward the bank so the player car ends up
+  // on the road itself (not on the plaza block south of it): the shot
+  // camera then sits over the road, and the frame below the cars is
+  // street, not empty plaza.
+  simulate(state, 60, { x: 144, z: 170 });
   // Bring the spawned police car into the frame: a black-and-white
-  // converging on the bank front just ahead of the player, between the
-  // camera and the beacon. Placed after the drive so it stays in frame.
-  placePoliceCars(state, [{ x: 138, z: 170, heading: Math.PI, speed: 10 }]);
+  // right beside the player car, closing on the bank front just ahead
+  // of the player, between the camera and the beacon. Placed after the
+  // drive so it stays in frame.
+  placePoliceCars(state, [{ x: 140, z: 172, heading: Math.PI, speed: 10 }]);
   simulateAmbient(state, 20);
-  // Pulled back and levelled so the bank roofline — and the beacon
-  // pillar rising from it — fit inside the frame.
-  frameCamera(state, 0, 0.12, 28);
+  // Close and levelled (dist 12, pitch ~0.10): the player car and the
+  // police car fill the frame at roughly twice their R3 size, the bank
+  // roofline — and the beacon pillar rising from it — still fit inside
+  // it, and the plaza is a thin strip beyond the road.
+  frameCamera(state, 0, 0.1, 12);
   hideBanner(state);
   hideHint(state);
   state.shakeTime = 0;
