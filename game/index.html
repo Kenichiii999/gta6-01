@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neon Bay — Open-World Crime Game</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1b26; font-family: system-ui, -apple-system, sans-serif; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .hidden { display: none !important; }
+
+  /* HUD */
+  #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+  #cash { position: absolute; top: 14px; right: 16px; font-size: 26px; font-weight: 800; color: #7dff9a; }
+  #health { position: absolute; top: 52px; right: 16px; width: 180px; height: 12px; background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.5); border-radius: 6px; overflow: hidden; }
+  #health-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #37d67a, #9be15d); }
+  #wanted { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); font-size: 26px; letter-spacing: 4px; color: #ffd23d; }
+  #objective { position: absolute; top: 14px; left: 16px; max-width: 340px; font-size: 15px; font-weight: 600; background: rgba(0,0,0,.45); padding: 8px 12px; border-radius: 8px; border-left: 4px solid #ff9a3d; }
+  #minimap { position: absolute; left: 16px; bottom: 16px; width: 180px; height: 180px; border: 2px solid rgba(255,255,255,.6); border-radius: 50%; background: #0d1b26; }
+
+  /* Screens */
+  .screen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; text-align: center; background: linear-gradient(180deg, rgba(10,25,40,.25) 0%, rgba(10,25,40,.72) 100%); }
+  .screen h1 { margin: 0; font-size: 84px; font-weight: 900; letter-spacing: 6px; color: #ffd23d; text-shadow: 0 0 24px rgba(255,90,122,.8), 0 4px 0 rgba(0,0,0,.4); }
+  .screen h2 { margin: 8px 0 0; font-size: 20px; font-weight: 600; letter-spacing: 3px; color: #7fd4ff; text-transform: uppercase; }
+  .screen p { margin: 18px 0 0; font-size: 17px; }
+  .controls { margin-top: 22px; font-size: 14px; line-height: 1.9; color: #dfeef5; background: rgba(0,0,0,.4); padding: 12px 22px; border-radius: 10px; }
+  .screen button { pointer-events: auto; margin-top: 24px; padding: 14px 42px; font-size: 19px; font-weight: 800; letter-spacing: 1px; color: #10202e; background: #ffd23d; border: none; border-radius: 10px; cursor: pointer; box-shadow: 0 4px 0 #b98a00; }
+  .screen button:hover { background: #ffe066; }
+  .screen button.secondary { background: #7fd4ff; box-shadow: 0 4px 0 #2a6a8a; }
+  #paused h1 { font-size: 56px; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.min.js" } }
+</script>
+</head>
+<body>
+<canvas id="game" aria-label="Neon Bay: an open-world crime game. Explore the city on foot, steal cars, dodge the police, run missions."></canvas>
+<p id="status" role="status" aria-live="polite"></p>
+
+<div id="hud" class="hidden">
+  <div id="objective">Talk to Vera at the garage.</div>
+  <div id="wanted">☆☆☆☆☆</div>
+  <div id="cash">$0</div>
+  <div id="health"><div id="health-fill"></div></div>
+  <canvas id="minimap" width="180" height="180"></canvas>
+</div>
+
+<div id="title" class="screen">
+  <h1>NEON BAY</h1>
+  <h2>An open-world crime game</h2>
+  <p>Press Enter to start</p>
+  <div class="controls">
+    WASD / Arrows — move &nbsp;·&nbsp; Shift — run &nbsp;·&nbsp; Mouse drag — look around<br>
+    E — enter car &nbsp;·&nbsp; F — punch &nbsp;·&nbsp; P / Esc — pause &nbsp;·&nbsp; M — mute
+  </div>
+  <button id="start-btn" type="button">Start</button>
+  <button id="continue-btn" class="secondary hidden" type="button">Continue</button>
+</div>
+
+<div id="paused" class="screen hidden">
+  <h1>PAUSED</h1>
+  <p>Press P or Enter to keep playing.</p>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
