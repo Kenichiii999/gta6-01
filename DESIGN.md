@@ -1368,3 +1368,754 @@ autopilot; the shape (return the screen to draw) stays the same.*
   paint twice, set `window.__shotReady`. The shape — return the screen
   to draw — stays the same.
 
+
+## 4. Game design synthesis
+
+This section describes the playable game as a whole. Everything here is
+a restatement of the module specs in §3 — if §4 and §3 ever disagree,
+§3 (and the v1 code behind it) wins; the disagreement belongs in §9.
+
+### 4.1 The city of Neon Bay
+
+Neon Bay is a sun-soaked coastal city, 9×9 blocks on a 72 m pitch
+(60 m block + 12 m road), ~660 m across, centred on the origin. The
+south edge (+Z) is a beach with palms and a boardwalk, then open ocean;
+the other three edges are hard world bounds. The centre block holds the
+88 m Neon Bay Tower with a pink beacon. Four corner-ish landmarks anchor
+the map and the story: Marchetti Garage (−144, −144, mission hub and
+spawn), Bay General Hospital (144, −144, wasted respawn), Neon Bay
+Police HQ (−144, 144, busted respawn), Neon Bay Bank (144, 144, the
+heist target). Ordinary blocks hold 1–3 procedural buildings (8–40 m)
+with pastel facades, lit windows, shopfronts and awnings. Streets have
+lamps, benches, hydrants, palms, and 8 decorative traffic lights.
+Traffic (14 cars), parked cars (8), and pedestrians (16) fill the city;
+the player is never alone in it. The look is warm and bright: blue sky
+dome, haze fog, drifting clouds, one shadow-casting sun that follows the
+player.
+
+### 4.2 Story and characters
+
+**Danny Cole** is the player: a driver-for-hire, new in town, broke,
+good behind the wheel. **Vera "V" Marchetti** is the fixer who runs the
+garage at (−144, −144) and hands Danny the jobs; every mission briefing
+is her voice, and the garage is the hub the story keeps returning to.
+There are no other named characters. All names, dialogue, art, and sound
+are original — nothing is taken from any existing game or film.
+
+The arc, in one line: Danny arrives with no car and no money, steals
+his first wheels, runs cash for Vera, gets the cops to know his name,
+proves he can outrun them, and ends by robbing Neon Bay Bank and
+becoming a legend.
+
+### 4.3 The 5-mission arc
+
+Missions run in fixed order, 1 → 5, auto-chaining: when one completes,
+the next briefing appears 2.5 s later (`nextStartAt = state.time +
+2.5`). Mission 1 auto-starts when play begins (see §2.4 and §9.12).
+Rewards are cash only; there is no shop, no upgrade, no inventory.
+
+| # | Title | Trigger to advance / complete | Reward |
+|---|---|---|---|
+| 1 | First Wheels | Step 0: get in any car (see §9.15). Step 1: drive it within 8 m of the garage front (−144, 0, −126). | $500 |
+| 2 | Payday Pickup | Collect 3 cash drops (tower, hospital, police fronts) — within 4 m of each. Beacon moves to the next remaining drop. | $800 |
+| 3 | Hot Pursuit | Step 0: reach wanted ≥ 2. Step 1: lose all heat (wanted back to 0). | $1,200 |
+| 4 | The Getaway | Reach the pier (0, 0, 348) within 10 m before the 90 s timer runs out. Timer runs from mission start (§9.16). Fail → same mission restarts from the top. | $1,500 |
+| 5 | Bay Heist | Step 0: reach the bank front (144, 0, 164). Step 1: hold position within 8 m for 5 s to crack the vault (progress decays if you leave). Step 2: escape to the garage front — only counts with wanted ≥ 1. | $3,000 + ending |
+
+Ending: completing mission 5 sets `state.gameComplete = true` and shows
+the banner `NEON BAY LEGEND` / `You own this city.` for 9 s. The game
+stays playable afterwards (free roam); the objective line reads
+`NEON BAY LEGEND — you own this city.` Every completion saves
+immediately (`saveGame`), pays the reward, and shows a
+`MISSION COMPLETE` / `+$X — <title>` banner for 4.2 s. The only
+failable mission is 4 (timeout); all others can only be completed, never
+failed.
+
+### 4.4 Moment-to-moment loop
+
+The loop the player actually lives in, on foot and in a car:
+
+1. **On foot.** Spawn at the garage front. WASD moves camera-relative,
+   Shift runs, mouse drag orbits the camera. The city is open: walk
+   anywhere, collide with buildings, never fall off the map.
+2. **Steal a car.** Walk within 3.5 m of a parked car (free, no heat) or
+   an occupied traffic car (+1 star, `stats.carsStolen += 1`) and press
+   E. The player mesh hides; the chase camera eases behind the car.
+3. **Drive.** W/S accelerate and brake/reverse, A/D steer (speed
+   sensitive), Space handbrakes into a slide. Cars collide with
+   buildings (bounce, −1 health, speed × −0.25), other cars (soft push),
+   and pedestrians (a hit at > 2 m/s knocks the ped down and adds +1
+   star). Exit with E at < 1 m/s; the car stays where you left it as a
+   parked car.
+4. **Heat.** Stealing an occupied car, hitting a pedestrian, hitting a
+   cop, or being seen assaulting someone within 60 m of police each add
+   stars (0–5). Police cars spawn (1 per star, max 3) and chase on the
+   road grid, ram, and deploy foot cops when close; at 3+ stars, 2 foot
+   cops run the player down, punch, and arrest (2 continuous seconds
+   within 2 m → busted). Heat decays −1 star per 20 s only when no
+   police unit is within 80 m.
+5. **Busted / wasted.** Busted: −20% cash, respawn at Police HQ, wanted
+   0, health 100. Wasted (health 0): −10% cash, respawn at the hospital.
+   Enter resumes. The mission state survives both — only cash is lost.
+6. **Missions.** The yellow beacon and the minimap diamond always point
+   at the current objective; the objective line names it; cash drops are
+   green beacons. Follow the beacon, do the job, get paid, next job.
+7. **Free roam after the ending.** Missions done, heat still works, cars
+   still stealable — the city stays live.
+
+### 4.5 Controls
+
+| Input | On foot | Driving | Title / paused / busted / wasted |
+|---|---|---|---|
+| W / ↑, S / ↓, A / ←, D / → | Move (camera-relative) | Accelerate / brake-reverse, steer | — |
+| Shift (either) | Run (9 m/s vs 5) | — | — |
+| Space | — | Handbrake | Confirm (start / resume) |
+| E | Enter nearest car (≤ 3.5 m) | Exit car (only if \|speed\| < 1 m/s) | — |
+| F | Punch (2.2 m arc, 0.35 s cooldown) | — | — |
+| P or Esc | Pause | Pause | P resumes from paused |
+| M | Mute toggle | Mute toggle | Mute toggle |
+| Enter | — | — | Start (title), resume (paused / busted / wasted) |
+| Mouse drag on canvas | Orbit camera | Orbit camera (eases back to chase view while driving) | — |
+
+There is **no** C (camera) key and **no** R (reset car) key in v1, despite
+the coordinator notes claiming them (see §9.2). Space does double duty
+(handbrake while driving, confirm on screens) — this is harmless by
+design, because the two never apply at the same time. No touch controls,
+no pointer lock.
+
+### 4.6 Heat, health, and the busted/wasted loop
+
+Health starts at 100 and is restored to 100 on busted/wasted respawn;
+nothing else heals. Damage sources: police car ram on foot (−5), foot
+cop punch (−10), player-car collision with a building (−1 car health,
+not player health). Player health reaching 0 means wasted, checked
+before and after stepping police units each frame. Wanted stars 0–5 are
+the game's difficulty dial: 0 is calm (traffic, peds, missions), 1–2 is
+a chase, 3+ adds foot cops and arrests. Losing heat is a real mechanic
+(mission 3 requires it): break line of contact until no police unit is
+within 80 m, then wait out the 20 s decay per star. Being busted or
+wasted is a setback, not a game over — cash is the only thing lost, and
+the mission restarts from its first step only if a save is loaded; in
+the live session the active mission keeps its step.
+
+### 4.7 Economy
+
+Cash is the single resource and the score. Sources: mission rewards
+($500 + $800 + $1,200 + $1,500 + $3,000 = $7,000 total). Sinks:
+busted −20%, wasted −10% (both floored). There is nothing to spend cash
+on in v1 — no shop, no car purchase, no bribe. Cash is displayed top
+right (`$` + locale string) and is the only number that persists across
+sessions besides mission index and health (see §4.8).
+
+### 4.8 Persistence (save)
+
+One `localStorage` key: `neon-bay.save.v1` (see §3.15). What is saved:
+`{ cash, missionIndex, health, pos: [x, y, z], savedAt }` — nothing
+else. When it is written: every 10 s of play (autosave in `step()`),
+and immediately on every mission completion. When it is read: on the
+title screen (to decide whether the Continue button shows) and by
+Continue, which restores cash, mission index, health, and position;
+wanted is always 0 on load, the active mission restarts at its first
+step via `startMission`, and cars, traffic, peds, police, stats, and
+mute are all fresh. A missing or corrupt save is simply no save
+(`loadSave()` returns `null`); storage being unavailable (e.g. private
+windows) makes `saveGame()` return false and progress lasts the visit
+only. There is no manual save button, no save slots, no delete-save UI
+(`clearSave()` exists in code but has no UI caller). The rebuild must
+not widen the save into a fuller snapshot without a design decision —
+the smoke tests rely on the current shape.
+
+### 4.9 Audio
+
+100% synthesized WebAudio; no audio files, no network. The
+`AudioContext` is created lazily on the first user gesture or the first
+`play()` call (browsers block audio before interaction) and every public
+entry point is guarded — audio must never throw, even before the context
+exists. Master gain 0.9, or 0 while muted (M key, `state.muted`).
+
+| Sound | When | Design (one-shot unless noted) |
+|---|---|---|
+| `click` | UI advance / mission step | Square 880 Hz, 0.05 s, vol 0.07 |
+| `pickup` | Cash drop collected | Sine 987.77 Hz 0.12 s then 1318.5 Hz 0.2 s at +0.09 s, vol 0.22 |
+| `mission-complete` | Mission completes | Triangle arpeggio 523.25 / 659.25 / 783.99 / 1046.5 Hz, 0.22 s each, staggered 0.11 s, vol 0.22 |
+| `fail` | Mission 4 timeout | Sawtooth 220 → 110 Hz, 0.45 s, vol 0.14 |
+| `punch` | F punch (hit or whiff) | Sine 170 → 55 Hz, 0.12 s, vol 0.3, + noise burst 0.08 s vol 0.18 filter 700 |
+| `crash` | Police ram | Noise burst 0.28 s vol 0.32 filter 800 + sine 95 → 38 Hz, 0.3 s, vol 0.28 |
+| `siren` | Fresh wanted-star increase (sting) | **Missing in v1 — implement in the rebuild (§9.10).** Prescribed: two-tone wail, square 700 → 950 Hz, 0.5 s, vol 0.12. Distinct from the continuous siren loop below. |
+| `busted` | Busted flow | **Missing in v1 — implement (§9.10).** Prescribed: low descending two-note sting, triangle 330 → 220 Hz, 0.6 s, vol 0.18. |
+| `wasted` | Wasted flow | **Missing in v1 — implement (§9.10).** Prescribed: low descending two-note sting, triangle 262 → 175 Hz, 0.7 s, vol 0.18. |
+| `hit` | Foot cop punch lands | **Missing in v1 — implement (§9.10).** Prescribed: short thud, sine 200 → 70 Hz, 0.1 s, vol 0.25, + noise burst 0.05 s vol 0.12 filter 900. |
+
+Continuous layers (in `update(dt)`): **engine** — sawtooth 55 Hz
+through a 420 Hz low-pass, frequency `55 + min(40, speed) * 3.6`, gain
+`0.045 + min(0.075, speed * 0.0018)` while driving faster than 0.5 m/s,
+else 0; **siren loop** — square 820 Hz with a 1.1 Hz LFO (±140 Hz),
+gain 0.035 while `wanted > 0` and the nearest police unit is < 160 m
+(or the police list is empty), else 0; **music** — a quiet synthwave
+arpeggio, triangle notes, 0.24 s per step, chords cycling Am → F → C →
+G (roots in §3.14), chord changing every 4 steps, bus gain 0.05,
+scheduled up to 0.18 s ahead. `window.__sfx(name)` plays a named sound
+from anywhere; `window.__audioState()` returns the context state or
+`'none'`.
+
+## 5. Acceptance checks per slice
+
+These are the EXACT check lists recovered from the four v1 smoke scripts
+in `~/workspace/makefun/gta6-01-dev/smoke-{a,b,c,d}.mjs` (dev scratch,
+not part of the repo). The rebuild agents re-run them against the rebuilt
+game; a slice is done only when its list passes in full. Every check
+below is named exactly as the script names it, with what it asserts and
+how. No check's content was unrecoverable — all four scripts are
+complete and quoted faithfully here.
+
+### 5.0 How to run them (common harness)
+
+All four scripts share the same harness; only the checks differ.
+
+- **Serve:** spawn `node serve.ts --port 8080` with cwd the repo root;
+  poll `http://localhost:8080/` until it answers (up to 40 × 250 ms);
+  kill the server in a `finally`.
+- **Browser:** `playwright-core` `chromium.launch` with
+  `executablePath: ~/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome`
+  (note: `chrome-linux64/chrome`, not `chrome-linux/chrome`) and args
+  `['--no-sandbox', '--use-gl=swiftshader',
+  '--enable-unsafe-swiftshader']` (smoke D adds
+  `'--autoplay-policy=no-user-gesture-required'`). Viewport 1280×720
+  (smoke C uses 960×540).
+- **Error capture:** every script collects `console` messages of type
+  `error`, `pageerror` events, and `requestfailed` events into arrays,
+  and the last two checks of every list assert both arrays are empty.
+- **Game-time waits:** headless SwiftShader renders at ~0.1× real time
+  (game time advances ~0.5 s per 5 s wall clock), so waits are driven by
+  `window.__game.time`, not wall-clock sleeps — `waitForFunction` on a
+  game-time predicate with a generous real-time timeout (60–120 s), or a
+  poll loop with a game-seconds budget. A plain `waitForTimeout` is only
+  used for sub-second UI settles (200–600 ms).
+- **State access:** all assertions read the live game through
+  `window.__game` (and the hooks in §2.3). Teleporting the player or a
+  unit by setting `.pos` directly is the scripts' standard way to stage
+  a situation deterministically instead of driving there.
+- **Reporting:** `check(name, ok, extra)` prints `PASS`/`FAIL` per check
+  and counts failures; the script prints `SMOKE-X: ALL PASS` and exits 0
+  only when every check passes, otherwise `SMOKE-X: N FAILURE(S)` and
+  exit 1.
+- **Screenshots:** each script saves a PNG next to itself
+  (`smoke-a-title.png`, `smoke-a-shot.png`, `smoke-a.png`, `smoke-b.png`,
+  `smoke-c.png`, `smoke-d.png`) as visual evidence; the PNGs are not
+  assertions.
+
+### 5.1 Slice A — foundation (10/10)
+
+Run: `node smoke-a.mjs` (cwd `~/workspace/makefun/gta6-01-dev/`).
+Loads `http://localhost:8080/`, waits 2.5 s.
+
+| # | Check (exact name) | Asserts / how |
+|---|---|---|
+| A1 | title screen renders | `#title` is not `.hidden` and its text contains `NEON BAY`. |
+| A2 | canvas sized | `#game` canvas has `width > 0` and `height > 0`. |
+| A3 | Enter starts play | After `keyboard.press('Enter')` + 500 ms, `window.__game.screen === 'play'`. (Also saves `smoke-a-title.png` before this.) |
+| A4 | player moves with WASD | Record `player.pos` (x, z); hold W 2 s, then A 1 s; distance moved > 2 m. |
+| A5 | Shift run is faster than walk | Hold ShiftLeft + W 800 ms; sample `player.speed` while running; > 6 m/s. |
+| A6 | P pauses | `keyboard.press('KeyP')` + 300 ms → `screen === 'paused'`. |
+| A7 | P resumes | `keyboard.press('KeyP')` again + 300 ms → `screen === 'play'`. (Also saves `smoke-a.png`.) |
+| A8 | ?shot=title sets __shotReady | `page.goto('/?shot=title&seed=1')`, `waitForFunction(() => window.__shotReady === true, 10 s)`. (Also saves `smoke-a-shot.png`.) |
+| A9 | no console errors | Console-error + pageerror arrays are empty. |
+| A10 | no failed requests | Failed-request array is empty. |
+
+### 5.2 Slice B — vehicles + traffic (13/13)
+
+Run: `node smoke-b.mjs`. Loads `/?seed=1`, waits 2.5 s, presses Enter,
+waits 500 ms. All movement waits are game-time based (see §5.0).
+
+| # | Check (exact name) | Asserts / how |
+|---|---|---|
+| B1 | Enter starts play | `window.__game.screen === 'play'` after Enter. |
+| B2 | traffic spawns ~14 cars | `window.__game.traffic.length === 14`. |
+| B3 | parked cars spawn ~8 | `window.__game.parkedCars.length === 8`. |
+| B4 | pedestrians spawn ~16 | `window.__game.peds.length === 16`. |
+| B5 | E enters parked car | Teleport the player to `parkedCars[0].pos + (2, 0, 0)`; press E; after 400 ms `player.onFoot === false`, `player.car` set, `parkedCars.length` is 7 (the entered car left the list). |
+| B6 | W accelerates the car | From the entered car, hold W until `__game.time` advances 3 s; `player.speed > 5` m/s and distance moved > 10 m. |
+| B7 | E exits car at low speed | Hold S until `\|car.speed\| < 1` (game-time wait, 60 s real timeout); press E; after 400 ms `player.onFoot === true`, `player.car` null. (Also saves `smoke-b.png` before the braking step.) |
+| B8 | traffic cars move along roads | Sample all traffic car positions, wait 2.5 game-s, re-sample; ≥ 10 of 14 cars moved > 1 m. |
+| B9 | traffic cars stay on roads | `traffic.filter(t => !city.isOnRoad(t.car.pos.x, t.car.pos.z)).length === 0`. |
+| B10 | pedestrians walk | Sample all ped positions, wait 2.5 game-s, re-sample; ≥ 12 of 16 peds moved > 0.5 m. |
+| B11 | E steals occupied traffic car | Record `stats.carsStolen`; teleport the player next to `traffic[0].car`; press E; after 400 ms `onFoot === false`, `stats.carsStolen` increased by exactly 1, `traffic.length === 13`. |
+| B12 | no console errors | Console-error + pageerror arrays are empty. |
+| B13 | no failed requests | Failed-request array is empty. |
+
+Note on B11: this check ran against the B-only isolated copy, before
+the police slice existed, so no wanted star was asserted (there was no
+`__wantedAdd` yet). In the integrated game the same steal also adds +1
+wanted star — see §9.17.
+
+### 5.3 Slice C — police + combat + wanted (20/20)
+
+Run: `node smoke-c.mjs`. Loads `/` (no seed), waits 2 s, presses Enter.
+Helpers: `waitForGame(page, fn, gameSeconds, realTimeoutMs, label)` —
+polls `fn` every 300 ms until true, a game-time budget, or a real
+timeout; `waitGameTime(page, seconds, realTimeoutMs)` — waits until that
+many game-seconds pass. Sets `__game.cash = 1000` before the wanted
+tests so the cash-loss assertions have a known base.
+
+| # | Check (exact name) | Asserts / how |
+|---|---|---|
+| C1 | Enter starts play | `waitForGame(() => screen === 'play', 2 game-s, 30 s)`; assert `screen === 'play'`. |
+| C2 | __wantedAdd hook exists | `typeof window.__wantedAdd === 'function'`. |
+| C3 | __police test hook exists | `window.__police` exists and `typeof window.__police.setDecaySeconds === 'function'`. |
+| C4 | wanted 2 spawns 2 police cars | `window.__wantedAdd(2, 'stolen car')`; wait (5 game-s, 60 s) until `wanted === 2` and ≥ 2 police units of kind `'car'`. |
+| C5 | police cars chase (distance closes) | Nearest police-car distance to the stationary player, before vs after 3 game-s of chase; assert it closed by > 20 m. (Also saves `smoke-c.png`.) |
+| C6 | wanted 3 spawns foot cops | `window.__wantedAdd(1, 'stolen car')` (wanted 2 → 3); wait (5 game-s, 60 s) until some police unit of kind `'foot'` exists. |
+| C7 | F punch damages cop 15 and adds wanted (hit police) | Park all police cars 600 m away (their rams would shove the player and break the geometry); teleport a foot cop to 1.5 m in front of the player, face both at each other (`player.heading = atan2(1.5, 0)`); press F; within 1.5 game-s assert the cop's health dropped by exactly 15, `wanted` rose by exactly 1, and `screen` is still `'play'` (the 2 s arrest timer cannot fire inside this window). |
+| C8 | busted flow triggers | Teleport a standing foot cop to 1 m from the player, `arrestTimer = 0`; wait (5 game-s, 90 s) until `screen === 'busted'`. |
+| C9 | busted: -20% cash, wanted 0, health 100, respawn at police station | After C8: `cash === 800` (20% of the 1000 set earlier), `wanted === 0`, `health === 100`, distance from player to the police landmark < 60 m. |
+| C10 | busted overlay visible | `#busted` element exists and `style.display !== 'none'`. |
+| C11 | Enter resumes from busted | Press Enter + 500 ms → `screen === 'play'`. |
+| C12 | no decay while police within 80 m | `__police.setDecaySeconds(1)` (test hook — shipped decay stays 20 s), `__wantedAdd(2, ...)`; wait 1 game-s; assert `wanted === 2` still (police are closing in, so decay is blocked). |
+| C13 | wanted decays to 0 with police far away (test decay 1 s) | Teleport all police units 600 m away; wait 3 game-s (decay interval is 1 s via the hook); assert `wanted === 0`. Then restore `setDecaySeconds(20)`. |
+| C14 | foot cop spawns for wasted test | Set `cash = 1000`, `health = 1`, `__wantedAdd(3, ...)`; wait (5 game-s, 60 s) until a foot cop exists. |
+| C15 | wasted flow triggers on health 0 | Teleport a standing foot cop to 1 m from the player, `punchCooldown = 0`, `arrestTimer = 0`; wait (5 game-s, 90 s) until `screen === 'wasted'` (the cop punch takes health 1 → 0). |
+| C16 | wasted: -10% cash, wanted 0, health 100, respawn at hospital | After C15: `cash === 900`, `wanted === 0`, `health === 100`, distance to the hospital landmark < 60 m. |
+| C17 | wasted overlay visible | `#wasted` element exists and `style.display !== 'none'`. |
+| C18 | Enter resumes from wasted | Press Enter + 500 ms → `screen === 'play'`. |
+| C19 | no console errors | Console-error + pageerror arrays are empty. |
+| C20 | no failed requests | Failed-request array is empty. |
+
+### 5.4 Slice D — missions + HUD + audio (15/15)
+
+Run: `node smoke-d.mjs`. Loads `/?seed=1`, waits 2 s. Chromium is
+launched with the extra `--autoplay-policy=no-user-gesture-required`
+flag so the audio context can run headless.
+
+| # | Check (exact name) | Asserts / how |
+|---|---|---|
+| D1 | __game hook exists | `!!window.__game`. |
+| D2 | __missionEvent hook exists | `typeof window.__missionEvent === 'function'`. |
+| D3 | __sfx hook exists | `typeof window.__sfx === 'function'`. |
+| D4 | Enter starts play + mission 1 auto-starts | Press Enter + 600 ms; `screen === 'play'`, `mission.title === 'First Wheels'`, `missionIndex === 0`. **This check only passes with the §2.4 reconstructed wiring** (the `startMission` call on entering play); it fails against the unwired v1 HEAD `main.js`. |
+| D5 | HUD objective shows mission 1 | `document.getElementById('objective').textContent` includes `First Wheels`. |
+| D6 | minimap draws mission marker | Recompute the marker's minimap pixel from `mission.marker` with the same `toMap` mapping as the HUD (`half = city.half + 60`); scan the 12×12 px box around it for a yellow pixel (`r > 200, g > 180, b < 100`). |
+| D7 | steal advances mission 1 to garage step | Teleport the player to the city centre (0, 0, 0) — away from the garage doorstep where it spawns — set `stats.carsStolen = 1`; after 400 ms `mission.stepIndex === 1`. |
+| D8 | mission 1 completes: +$500, index -> 1 | Teleport the player to `_missions.garageFront`; after 600 ms `cash === 500`, `missionIndex === 1`, `stats.missionsDone === 1`. |
+| D9 | mission-complete banner shows | `#banner` text includes `MISSION COMPLETE` and `500`. |
+| D10 | mission 2 auto-starts | `waitForFunction(() => mission.title === 'Payday Pickup', 30 s)` — the 2.5 s game-time breather after mission 1. |
+| D11 | mission 2 completes: cash $1300, index -> 2 | Teleport the player onto each untaken drop in turn (`_missions.drops`, `find(d => !d.taken)`, 400–600 ms between teleports); assert `cash === 1300` (500 + 800) and `missionIndex === 2`. |
+| D12 | audio context initializes after click (no throw) | `page.mouse.click(640, 360)` + 300 ms; call `window.__sfx('click')` and `window.__sfx('mission-complete')`; `window.__audioState()` is `'running'` or `'suspended'`. |
+| D13 | M mutes + indicator shows | Press M + 300 ms; `__game.muted === true` and `#mute-indicator` `style.display !== 'none'`. Press M again to restore. (Also saves `smoke-d.png`.) |
+| D14 | no console errors | Console-error + pageerror arrays are empty. |
+| D15 | no failed requests | Failed-request array is empty. |
+
+## 6. Key technical constraints
+
+These are the rules the rebuild must not violate. §1.3 states the
+short form; this section is the binding detail.
+
+### 6.1 Offline, static files, no network
+
+- The game is `game/index.html` + ES modules + the vendored three.js.
+  No build step, no bundler, no TypeScript in the game itself, no
+  server-side logic. `serve.ts` is a dev convenience only.
+- **No network requests at runtime, ever.** Every script, texture, and
+  image is a file under `game/` or a `data:` URI. Textures are procedural
+  canvas textures; audio is synthesized WebAudio; the favicon is
+  `data:,`. The only external file the page loads is the vendored
+  `game/vendor/three.min.js`. A page load with the network disabled must
+  play identically — the smoke tests' "no failed requests" check (§5)
+  enforces this.
+- Only one bare import specifier is allowed, via the import map:
+  `{"three": "./vendor/three.min.js"}`. No CDN, no other library.
+
+### 6.2 Platform and input
+
+- **Desktop Chrome**, keyboard + mouse. No touch controls, no pointer
+  lock; the camera orbits on mouse drag. Headless verification uses
+  Chromium with SwiftShader (§5.0).
+- Fixed step `STEP = 1/60` s; simulation advances only in fixed slices,
+  only while the screen is `play` (title steps advance `state.time` and
+  the camera orbit only). A frame stall longer than `MAX_FRAME = 0.25` s
+  is dropped, not replayed.
+- Flat world: Y = 0 is ground everywhere; no jumping, no hills, no
+  vertical movement except mesh bob.
+- Audio, HUD hooks, and the cross-slice `window.*` hooks are all guarded
+  with try/catch — a missing system must never break gameplay, and audio
+  must never throw.
+
+### 6.3 Screenshots and scorer caps
+
+- **Screenshots:** exactly 4, each ≤ 256 KiB (262,144 bytes), JPEG,
+  1280×720 (long side ≤ 1280, short side ≥ 480), quality ~0.8. The four
+  shots are `chase`, `street`, `heist`, `city` (see §3.16 and §9.8),
+  staged by `?shot=<name>&seed=N`, painted twice, signalled by
+  `window.__shotReady`. `shots.json` must list the four real shots, not
+  the kit starter's `start`/`play`/`end`.
+- **Scorer caps, enforced in `main.ts`:** screenshots max 4, each max
+  262,144 bytes; game max **993 files**, max **50,331,648 bytes
+  (48 MiB)**; game path max 1000 bytes; dossier text budget
+  `text_max_bytes: 163840`. `main.ts` refuses an entry the scorer would
+  refuse rather than submitting a doomed one.
+- `game/index.html` ≤ 1 MiB. The dossier (`dossier.json`) ≤ 1.5 MiB.
+
+### 6.4 Entry program and authorship rule
+
+- `main.ts` (Node 22, standard library only) copies `game/` and
+  `screenshots/` into `/output` (or `$MAKEFUN_OUTPUT_DIR` outside the
+  grader container) and writes `/output/dossier.json` with the vendored
+  `vendor/makefun-game.ts` `buildDossier`. It must be rewritten fresh by
+  an agent in a recorded session — at least 1 authored line; the starter
+  `main.ts` is kit-excluded and does not count.
+- **Authorship bar (competition rule):** ≥ 30% authored lines overall;
+  some file revised in ≥ 2 assistant messages; every file's final content
+  written during recorded sessions. No downloaded or copied-in
+  deliverable code except vendored libraries (`*.min.js`, i.e. three.js
+  r170) and kit files. The rebuild agents write every game file fresh
+  from this document and never open the v1 `.js` files — reading them
+  would count their lines as copied against the 30% bar.
+- `README.md` at the repo root carries the three make.fun badges for
+  owner `Kenichiii999`, repo `gta6-01`, referral `9v6tjk8q`, and the run
+  command `node serve.ts` + `http://localhost:8080`.
+
+### 6.5 Determinism
+
+- `?seed=N` fixes the city layout and traffic spawn (seeded mulberry32;
+  city from `createRandom(seed)`, traffic from
+  `createRandom((seed >>> 0) + 7)`). Facade window patterns are seeded;
+  road/sidewalk/sand speckle grain is not (visual only, §9.14).
+- Behavioural randomness must also go through the seeded RNG in the
+  rebuild — traffic turn rolls and ped timers in v1 use `Math.random()`,
+  so `?seed=N` does not fully fix behaviour (§9.9); police spawn
+  positions do the same (§9.13). Route them through the seeded RNG.
+- Never invent new palette entries, tuning numbers, or key bindings the
+  modules don't consume; keep the one-job-per-file split and the file
+  list in §2.1 (the judge reads the outline).
+
+## 8. Integration evidence — how v1 was actually verified
+
+There is no §7 in this document; the numbering jumps from §6 to §8
+because no §7 was ever assigned. This section exists because the
+preamble (and §2.4) cite it: slices B/C/D were verified against an
+**integrated copy** with the wiring applied, not against the committed
+`main.js` at HEAD.
+
+**What the integrated copy was.** Each slice agent (B, C, D) took the
+HEAD tree, applied its slice's wiring snippet to a scratch copy of
+`main.js` — imports, `createXxx` calls, per-step `updateXxx` calls,
+`handleCarInteract` on the E key, the `frameActions` stash, and the
+`startMission` call on entering play — ran its smoke test against that
+copy, and then **reverted `main.js` to byte-identical HEAD** before
+committing only its own module files. The wiring snippets are preserved
+in the slice reports (coordinator progress log, §2.4) and are the source
+of the **[reconstructed]** markings in §2.4. The committed game at HEAD
+(`ec90ef6`) therefore plays only the slice-A part (on-foot movement in
+the city + HUD skeleton); the full game exists only as HEAD + the §2.4
+wiring. That is a defect of the v1 commit, not of the design — see §9.1.
+
+**Verification record.**
+
+| Slice | Commit | Smoke result | Notes |
+|---|---|---|---|
+| A — foundation | `5d1313b` | smoke-a 10/10, 0 console errors, 0 failed requests | game/ 752 KB, 12 files |
+| B — vehicles + traffic | `59542fd` | smoke-b 13/13, 0 console errors, 0 failed requests | Verified against an ISOLATED copy (shared tree was broken mid-test by C's half-written police.js); B's main.js revert removed only its 5 lines, leaving C+D wiring intact |
+| C — police + combat + wanted | `ec90ef6` | smoke-c 20/20, 0 console errors, 0 failed requests | `setDecaySeconds` bug fixed (it is `setPoliceDecaySeconds`, a test hook; shipped decay stays 20 s); main.js reverted to byte-identical HEAD |
+| D — missions + HUD + audio | `402a236` | smoke-d 15/15, 0 console errors, 0 failed requests | Mission 1 auto-start asserted (D4) — passes only with the §2.4 wiring |
+| E — shots + polish + integration | not spawned | — | Slice E was never spawned: the recording failed to seal (see the coordinator progress log) and the rebuild supersedes it |
+| F — verification | not spawned | — | `main.ts` run + `check --kit . --repo` + dossier/caps check; runs against the rebuilt game |
+
+**Rule for the rebuild.** The rebuild ships the §2.4 wiring inside
+`game/src/main.js` itself — imports, system creation, per-step updates,
+E-key handling, and mission 1 auto-start — and re-runs all four smoke
+lists in §5 against that single wired tree. There must be no separate
+"integrated copy": the committed `main.js` IS the integrated one.
+
+## 9. Ambiguities
+
+Where v1 code and the earlier coordinator notes
+(`~/workspace/makefun/gta6-01-dev/DESIGN.md`) disagree, **the code
+wins**. This section lists every disagreement and every v1 defect found
+in the first spec pass, each with a prescribed rebuild resolution. The
+rebuild must NOT reproduce v1's bugs: a resolution marked
+**[rebuild]** is a change from v1 behaviour, and the smoke lists in §5
+are the check that the change did not break the game.
+
+### 9.1 Unwired `main.js` at HEAD — B/C/D never connected
+
+**Ambiguity.** The v1 commit at HEAD (`ec90ef6`) ships `main.js` with
+no slice B/C/D wiring at all: no `createTraffic` / `createPolice` /
+`createMissions` / `createHud` / `createAudio`, no `updateDrive` /
+`updateTraffic` / `updatePolice` / `updateMissions` / `updateCombat` /
+`updateAudio`, no E-key handling, no mission 1 auto-start. The modules
+exist and are complete, and slices B/C/D were verified against an
+integrated copy (§8) — but the committed game as-shipped only plays the
+slice-A part.
+
+**Resolution [rebuild].** The rebuild MUST wire all slices in `main.js`
+exactly per §2.4 (the steps marked **[reconstructed]**). The unwired
+HEAD state is a bug, not the spec. Do not "preserve" it, do not ship a
+separate integrated copy — the committed `main.js` is the integrated
+one, and smoke D check D4 (mission 1 auto-starts) fails without it.
+
+### 9.2 Coordinator / dev notes vs code — the notes are wrong
+
+**Ambiguity.** The coordinator notes disagree with the code in four
+places (code wins in all four):
+
+- Notes claim C (camera) and R (reset car) keys. The code has no such
+  keys: `KEYS` in config.js lists only W/A/S/D + arrows, Shift, E, F,
+  P/Esc, M, Enter/Space (§3.1, §4.5).
+- Notes say mission 3 is "evade 30 s". The code is "reach 2 stars, then
+  back to 0" — no timer, no 30 s (§3.12).
+- Notes say mission 5 is "escape with 3 stars". The code requires
+  "≥ 1 star" on the garage escape step (§3.12).
+- Notes say "1–4 buildings per block". The code spawns
+  `randInt(rng, 1, 3)` — 1–3 buildings per block (§3.6).
+
+**Resolution.** Follow the code in all four cases. Do not implement C/R
+keys, a 30 s evade timer, a 3-star escape requirement, or a 4th
+building per block.
+
+### 9.3 Traffic lights are decorative — traffic never stops
+
+**Ambiguity.** The coordinator notes say traffic cars "stop at lights".
+The code places 8 traffic lights at fixed positions (§3.6) and
+`updateTraffic` never reads them: cars slow for the car ahead and for
+the player, and turn at intersections, but no light state is ever
+checked.
+
+**Resolution.** Follow the code: lights are visual props only. Do not
+add stop-at-red behaviour — it would change traffic flow and could
+break smoke B checks B8/B9 (cars moving, cars staying on roads).
+
+### 9.4 Combat ↔ traffic mismatch — punched peds never fall
+
+**Ambiguity.** `combat.js` sets `ped.health`, `ped.down`, and
+`ped.fleeing` when a punch hits a pedestrian (§3.11), but `traffic.js`
+never reads any of those fields: its peds only know `state`
+(`'walk'` / `'flee'` / `'down'`), `stateTimer`, and `downTimer`. A
+punched ped therefore takes damage in the combat slice and keeps
+walking in the traffic slice — the punch's visible effect on peds is
+nil (cops are unaffected: their `health`/`down` ARE read by
+`police.js`).
+
+**Resolution [rebuild].** `traffic.js` must honour the combat fields:
+in `updateTraffic`, a ped with `ped.down === true` behaves as state
+`'down'` (lies flat, `downTimer = 3`, then gets up into `'flee'`), and a
+ped with `ped.fleeing === true` behaves as state `'flee'` (runs away
+from the player at 4.2 m/s) and clears the flag once the flee state is
+entered. Keep the existing car-hit path (`state = 'down'`,
+`downTimer = 3`) as the canonical down transition; the combat fields
+feed into it, they do not create a second one.
+
+### 9.5 `window.__missionEvent('carStolen')` is never called
+
+**Ambiguity.** `missions.js` installs `window.__missionEvent` handling
+`'carStolen'` (sets `flags.stolen`, increments `stats.carsStolen`) and
+`'cashPickup'` (§3.12), but nothing in v1 calls it. Mission 1's steal
+step works anyway, because it also accepts `stats.carsStolen > 0` and
+`player.car` (§3.12) — the steal is counted by `cars.js` directly via
+`stats.carsStolen += 1` in `enterCar`.
+
+**Resolution [rebuild].** Either call it or remove it — do not leave a
+dead event. Prescribed: **call it.** In `cars.js` `enterCar`, when an
+occupied car is stolen, call `window.__missionEvent('carStolen')` (guarded
+try/catch, as with `__wantedAdd`) in addition to the direct
+`stats.carsStolen` increment, so the mission flag path is exercised and
+the hook is not dead code. Leave `'cashPickup'` routed through
+`collectDrop` as it is (the hook is the alternate entry point for it,
+not the primary one).
+
+### 9.6 `state.shakeTime` is set but consumed by nothing
+
+**Ambiguity.** `police.js` sets `state.shakeTime` (0.35 on a ram, 0.25
+on a cop punch) via its local `shake()` helper, but no module reads it:
+the camera never shakes. The field exists in the shared state (§2.2)
+as a dead write.
+
+**Resolution [rebuild].** `render.js` must apply camera shake from it
+(slice E work in v1's plan, now part of the rebuild): in
+`updateCamera`, while `state.shakeTime > 0`, offset the camera target
+by a small random amount (amplitude ~0.15 m × `shakeTime`, decaying)
+and decrement `state.shakeTime` by `dt` each frame (clamped at 0).
+The shake must be purely visual — it must not move `player.pos` or
+affect collision, and it must decay to exactly 0 so the camera settles.
+
+### 9.7 `police.js` duplicates the police-car mesh
+
+**Ambiguity.** `cars.js` exports `makePoliceCar` (a police variant of
+the shared car factory, §3.8), but `police.js` never imports it: it
+builds its own police car mesh inline from boxes (§3.10), with
+different proportions (body 2.0×0.7×4.4, black cabin, black hood/trunk,
+own wheel positions) and its own flashing-light fields (`red`, `blue`,
+`siren`). Two police-car looks therefore exist in the codebase; only
+the police.js one ever appears in-game.
+
+**Resolution [rebuild].** Reuse `makePoliceCar` from `cars.js` for
+police units, and delete the inline mesh builder from `police.js`.
+Keep the police.js unit behaviour (flashing light bar, chase/ram/deploy
+logic, `siren` phase) by driving the factory car's meshes: the factory
+car already has a red/blue roof light bar, so the flash can toggle
+those meshes' visibility instead of police.js's own `red`/`blue`
+meshes. Do not change the unit's external shape (length/width/speed)
+beyond what the factory already provides — the chase and ram ranges in
+§3.10 were tuned against the police.js mesh, and the factory car's
+footprint (4.5 × 1.95) is within 0.1 m of it.
+
+### 9.8 `shots.js` is a title-only stub; `shots.json` / `screenshots/` are kit starter
+
+**Ambiguity.** `stageShot(name, state)` ignores `name` and always stages
+the title screen (§3.16); `shots.json` still lists the kit starter's
+`1-start.jpg` / `2-play.jpg` / `3-end.jpg` with `?shot=start|play|end`,
+and `screenshots/` still holds the kit starter Block Dodger images.
+None of the four real shots (`chase`, `street`, `heist`, `city`) exists.
+
+**Resolution [rebuild].** Implement real screenshots: `stageShot`
+must handle `chase`, `street`, `heist`, and `city` per the dev notes
+(§3.16, §6.3) — stage each by simulating the real game forward from a
+seeded world with a simple autopilot (drive toward the mission marker,
+keep clear of buildings), paint twice, set `window.__shotReady`.
+Replace `shots.json` with the four real shots and replace
+`screenshots/` with the four real renders (1280×720 JPEG q~0.8, each
+≤ 256 KiB). Unknown shot names still stage the title screen, as v1
+does. The kit starter entries and images must not ship.
+
+### 9.9 Non-determinism — traffic turns and ped timers use `Math.random()`
+
+**Ambiguity.** `?seed=N` is specified to fix the world (§3.2, §6.5),
+but `traffic.js` rolls intersection turns with unseeded `Math.random()`
+(`< 0.22` to turn, `< 0.11` left) and resets ped `stateTimer` from an
+unseeded stream (`randRange(Math.random, 2, 8)`, `randRange(Math.random,
+3, 9)`, and the ±90° turn roll). Two runs with the same seed therefore
+build the same city and spawn the same traffic, but the traffic then
+behaves differently.
+
+**Resolution [rebuild].** Route them through the seeded RNG: give the
+traffic system its own seeded stream (e.g. `createRandom((state.seed >>>
+0) + 7)` already seeds spawns — extend the same stream, or a second
+stream derived from the seed, to the turn rolls and ped timers) and
+remove every `Math.random()` call from `traffic.js`. The seeded stream
+must be created once in `createTraffic` and stored on the traffic
+runtime, not re-created per frame. Smoke B checks B8–B10 (cars move,
+stay on roads, peds walk) must still pass with the seeded rolls.
+
+### 9.10 Audio gaps — four called sounds have no case in `play()`
+
+**Ambiguity.** `'siren'`, `'busted'`, `'wasted'`, and `'hit'` are called
+(`police.js`: `__sfx('siren')` on a fresh wanted increase,
+`__sfx('busted')` / `__sfx('wasted')` in the busted/wasted flows,
+`sfx('hit')` on a cop punch) but have NO case in `audio.js` `play()` —
+they hit the `default` branch and are silent. The wanted sting, the
+busted/wasted stings, and the cop-punch thud are therefore all silent
+in v1. Note: §3.14 says the rebuild "may either keep this (documented
+silence) or add them" — that sentence is superseded by this section.
+
+**Resolution [rebuild].** Implement all four, as one-shots in the same
+style as the existing six (see the prescribed designs in §4.9):
+`siren` (two-tone wail), `busted` and `wasted` (low descending stings,
+distinct pitches so the two flows sound different), `hit` (short
+thud). Do not change the existing six sounds. Keep the continuous
+siren loop in `update()` as it is — the one-shot `'siren'` sting is a
+separate event (fresh star), not the loop.
+
+### 9.11 HUD duplication — local `updateHud`/`drawMinimap` vs `hud.js`
+
+**Ambiguity.** `main.js` has its own local `updateHud()` and
+`drawMinimap()` (cash, health, wanted, objective, player arrow, garage
+dot), while `hud.js` has the fuller versions (same fields plus speed,
+mute indicator, banner, traffic/police/drop/marker minimap layers).
+Both draw to the same `#minimap` canvas; whichever runs last wins the
+frame, and the local one drops the mission marker, police dots, and
+traffic dots that smoke D check D6 asserts.
+
+**Resolution [rebuild].** Use `hud.js` only: `main.js` calls
+`state._hud`'s `updateHud(state, dt)` / `drawMinimap()` (via the
+`createHud` api stored on `state._hud`, §3.13) and deletes its local
+`updateHud()` and `drawMinimap()` entirely. Do not ship both drawing
+the same canvas. The HUD element ids and the objective-line format stay
+as specified in §2.4/§3.13.
+
+### 9.12 Mission 1 auto-start has no caller
+
+**Ambiguity.** `startMission(state, i)` exists and
+`updateMissions` auto-starts later missions via `nextStartAt`, but
+nothing in v1 calls `startMission` for mission 1: a fresh game enters
+play with `mission === null` and no briefing, and only the 2.5 s
+breather path (which needs a prior completion to set `nextStartAt`)
+would ever start a mission.
+
+**Resolution [rebuild].** Call `startMission(state, missionIndex)` on
+entering play — in `startGame`, after the fresh/load setup, whenever no
+mission is active and `missionIndex < 5` (§2.4). Do NOT auto-start when
+`missionIndex >= 5` (game complete). Smoke D check D4 asserts this
+behaviour.
+
+### 9.13 Police spawn randomness is also unseeded (new)
+
+**Ambiguity.** Found while resolving §9.9: `police.js` also uses
+unseeded `Math.random()` — spawn angle and distance
+(`50 + random*20` m for cars, `30 + random*15` m for foot cops), the
+initial siren phase, and the foot cop `walkPhase`. Same-seed runs
+therefore spawn police at different places.
+
+**Resolution [rebuild].** Route these through the seeded RNG as well
+(same prescription as §9.9: a seeded stream owned by the police
+runtime, created once in `createPolice`). Spawn positions are
+gameplay-visible, so this is a real determinism fix, not cosmetic.
+Smoke C teleports police units explicitly, so its checks are unaffected
+by the seeding.
+
+### 9.14 Texture speckle grain is unseeded (new)
+
+**Ambiguity.** `textures.js` paints road/sidewalk/sand speckles with
+unseeded `Math.random()` (§3.5). Same-seed runs therefore have
+different asphalt/sand grain. Unlike §9.9/§9.13 this affects no
+behaviour — only pixels.
+
+**Resolution.** Accepted as-is: keep the unseeded speckle. It is
+visual grain only, it never affects collision, spawn, or any check, and
+seeding it would churn every facade texture for no gameplay gain. Do
+not "fix" it by seeding; do not cite it as a determinism failure. (The
+facade window patterns ARE seeded and must stay seeded.)
+
+### 9.15 Mission 1 "steal" counts any car entry, parked cars included (new)
+
+**Ambiguity.** The briefing says "Borrow a car" and the mission is
+called "First Wheels" / "steal any car", but the code advances step 0
+when `flags.stolen || stats.carsStolen > 0 || player.car` (§3.12) —
+entering a free parked car (no theft, no wanted star) also counts.
+Smoke D check D7 relies on this: it sets `stats.carsStolen = 1`
+directly rather than stealing.
+
+**Resolution.** Follow the code: any car entry advances mission 1 step
+0. Do not restrict it to occupied-car thefts — that would make the
+mission harder than specified and break D7's staging. The "steal" in
+the title is flavour; the mechanic is "get in a car".
+
+### 9.16 Mission 4 timer runs from mission start, wherever the player is (new)
+
+**Ambiguity.** The briefing says "Ninety seconds, garage to the pier",
+implying the run starts at the garage — but the code starts the 90 s
+timer at `startMission` and only checks arrival at the pier (§3.12).
+Mission 4 auto-starts 2.5 s after mission 3 completes, wherever the
+player happens to be; there is no requirement to be at the garage, and
+no teleport to it.
+
+**Resolution.** Follow the code: the timer runs from mission start,
+the only condition is reaching the pier (within 10 m) before it hits 0,
+and failing restarts the same mission from the top. Do not add a
+garage-start requirement or a teleport — either would change the
+mission's difficulty and is not in the code. The "garage to the pier"
+wording stays as briefing flavour.
+
+### 9.17 Occupied-car steal adds +1 wanted only in the integrated game (new)
+
+**Ambiguity.** Smoke B check B11 (steal an occupied traffic car)
+asserts `carsStolen + 1` and `traffic 14 → 13` but asserts nothing
+about wanted — because it ran against the B-only isolated copy, before
+`police.js` existed and before `window.__wantedAdd` was installed.
+`cars.js` `enterCar` calls `__wantedAdd(1, 'stolen car')` only if the
+hook exists, so in the B-only copy the steal was heat-free.
+
+**Resolution.** The integrated behaviour is the spec: stealing an
+occupied car adds +1 wanted star (§3.8, §3.10). The rebuild's B-list
+re-run must still pass B11 as written (counts only), and the +1 star
+is additionally asserted by the integrated game, not by changing B11.
+Do not "fix" B11 to assert wanted — the B list is a historical record
+of what slice B verified; the star is covered by smoke C's wanted
+checks and by §4.4.
