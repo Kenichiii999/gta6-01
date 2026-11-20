@@ -1,30 +1,24 @@
-// Neon landmark signage — one wraparound sign per landmark: the
-// landmark's own name, painted once on each of its four faces at the
-// same height, so from any cardinal direction exactly one face is
-// front-on and the text shows exactly once. The faces of a box meet
-// only at the corner edge, so two faces can never overlap or ghost
-// over each other the way the old rooftop sign used to land on top of
-// the facade sign when viewed from the south. Text uses only the
-// city's own names, each in its own neon colour. Signs are sized from
-// each landmark mesh's own dimensions and placed from its position,
-// so they follow any city seed. Text is painted on offscreen canvases
-// (no image files, no network); the sign planes use unlit materials
-// with tone mapping off so the colours stay saturated in daylight.
-// Each sign is a dark backing plus the glowing text face plus a
-// larger faint copy of the same text behind it as a halo. Built once,
-// lazily, on the first frame that has a city — and a failure here must
-// never break the frame.
+// Neon landmark signage — one glowing sign pair per landmark: a
+// facade sign on the south face (the side the spawn, the street shots
+// and most approaches look at) plus a double-sided rooftop sign.
+// Text uses only the city's own names, each in its own neon colour.
+// Signs are sized from each landmark mesh's own dimensions and placed
+// from its position, so they follow any city seed. Text is painted on
+// offscreen canvases (no image files, no network); the sign planes use
+// unlit materials with tone mapping off so the colours stay saturated
+// in daylight. Each sign is a dark backing plus the glowing text face
+// plus a larger faint copy of the same text behind it as a halo.
+// Built once, lazily, on the first frame that has a city — and a
+// failure here must never break the frame.
 import * as THREE from 'three';
 
-// [sign text, neon colour] per landmark key. One text per landmark:
-// the same text is painted on all four faces, so it can never be
-// doubled by a second sign carrying the same words.
+// [facade text, rooftop text, neon colour] per landmark key.
 const SIGN_TEXT = {
-  tower: { text: 'NEON BAY', color: '#ff5a9a' },
-  garage: { text: 'MARCHETTI GARAGE', color: '#ff9a3d' },
-  hospital: { text: 'BAY GENERAL', color: '#4dff88' },
-  police: { text: 'POLICE HQ', color: '#5a9aff' },
-  bank: { text: 'NEON BAY BANK', color: '#ffd23d' },
+  tower: { facade: 'NEON BAY', roof: 'NEON BAY', color: '#ff5a9a' },
+  garage: { facade: 'MARCHETTI GARAGE', roof: 'GARAGE', color: '#ff9a3d' },
+  hospital: { facade: 'BAY GENERAL', roof: 'HOSPITAL', color: '#4dff88' },
+  police: { facade: 'POLICE HQ', roof: 'POLICE', color: '#5a9aff' },
+  bank: { facade: 'NEON BAY BANK', roof: 'BANK', color: '#ffd23d' },
 };
 
 const builtScenes = new WeakMap();
@@ -71,12 +65,7 @@ function makeSign(text, color, faceWidth, faceHeight, doubleSided) {
   );
   group.add(backing);
   const halo = new THREE.Mesh(
-    // Exactly the face size, on purpose: a wider halo would poke past
-    // the dark backing and ghost its edge letters onto the facade
-    // (the R3 halo at 1.3x did exactly that). Same-size, it still
-    // shows through the face's transparent pixels and doubles the
-    // glow around the letters, but nothing of it can escape the sign.
-    new THREE.PlaneGeometry(faceWidth, faceHeight),
+    new THREE.PlaneGeometry(faceWidth * 1.3, faceHeight * 1.3),
     new THREE.MeshBasicMaterial({
       map: texture, transparent: true, opacity: 0.35, side, toneMapped: false, depthWrite: false,
     }),
@@ -111,39 +100,32 @@ function buildSignage(state, scene) {
       const { w, h, d } = landmarkSize(lm);
       const isTower = key === 'tower';
 
-      // One sign, wrapped around all four faces at the same height.
-      // The 88 m tower's sign sits lower — about a third of its height
-      // (~28 m) — so it is in frame from a normal street distance;
-      // the others keep theirs in the upper third. Each face is sized
-      // from its own face width (w for the south/north faces, d for
-      // the east/west ones) and capped at the same max height, so the
-      // text never overhangs a corner. The old rooftop sign is gone:
-      // from the south it used to land directly on top of the facade
-      // sign and double the lettering.
-      const signY = isTower ? h * 0.33 : h * 0.75;
-      const signMaxH = isTower ? h * 0.14 : h * 0.42;
-      const aspect = makeTextAspect(spec.text, spec.color);
-      // [face width, offset from centre, outward rotation]. South
-      // first (the side the spawn, the street shots and most
-      // approaches look at), then north, east, west.
-      const faces = [
-        { width: w, x: 0, z: d / 2 + 0.25, rotY: 0 },
-        { width: w, x: 0, z: -d / 2 - 0.25, rotY: Math.PI },
-        { width: d, x: w / 2 + 0.25, z: 0, rotY: Math.PI / 2 },
-        { width: d, x: -w / 2 - 0.25, z: 0, rotY: -Math.PI / 2 },
-      ];
-      for (const face of faces) {
-        let faceW = face.width * 0.85;
-        let faceH = faceW / aspect;
-        if (faceH > signMaxH) {
-          faceH = signMaxH;
-          faceW = faceH * aspect;
-        }
-        const sign = makeSign(spec.text, spec.color, faceW, faceH, false);
-        sign.group.position.set(lm.pos.x + face.x, signY, lm.pos.z + face.z);
-        sign.group.rotation.y = face.rotY;
-        scene.add(sign.group);
+      // Facade sign on the south face (+Z). The 88 m tower's sign sits
+      // lower — about a third of its height (~28 m) — so it is in frame
+      // from a normal street distance; the others keep theirs in the
+      // upper third.
+      const facadeY = isTower ? h * 0.33 : h * 0.75;
+      const facadeMaxH = isTower ? h * 0.14 : h * 0.42;
+      let facadeW = w * 0.85;
+      let facadeH = facadeW / makeTextAspect(spec.facade, spec.color);
+      if (facadeH > facadeMaxH) {
+        facadeH = facadeMaxH;
+        facadeW = facadeH * makeTextAspect(spec.facade, spec.color);
       }
+      const facade = makeSign(spec.facade, spec.color, facadeW, facadeH, false);
+      facade.group.position.set(lm.pos.x, facadeY, lm.pos.z + d / 2 + 0.25);
+      scene.add(facade.group);
+
+      // Double-sided rooftop sign, standing on the roof.
+      let roofW = w * 0.55;
+      let roofH = roofW / makeTextAspect(spec.roof, spec.color);
+      if (roofH > 5) {
+        roofH = 5;
+        roofW = roofH * makeTextAspect(spec.roof, spec.color);
+      }
+      const roof = makeSign(spec.roof, spec.color, roofW, roofH, true);
+      roof.group.position.set(lm.pos.x, h + roofH / 2 + 0.9, lm.pos.z);
+      scene.add(roof.group);
     } catch {
       // One bad landmark must not take the other signs with it.
     }
@@ -151,7 +133,7 @@ function buildSignage(state, scene) {
 }
 
 // Aspect (width / height) of the painted text canvas for a string.
-// Cached per string so the face sizing and the sign itself agree.
+// Cached per string so the facade/roof sizing and the sign itself agree.
 const aspectCache = new Map();
 function makeTextAspect(text, color) {
   const cacheKey = `${text}|${color}`;

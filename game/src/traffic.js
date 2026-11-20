@@ -49,72 +49,6 @@ function wantedAdd(n, reason) {
   } catch { /* a missing police slice must never break a ped hit */ }
 }
 
-// --- Building collision for pedestrians ------------------------------------
-// Peds must never be inside a building footprint: spawn spots are
-// validated below, and movement pushes them back out of any wall they
-// touch. The margin keeps a ped's body (radius ~0.55 m) clear of the
-// wall, not just its centre point.
-const PED_RADIUS = 0.55;
-
-function isInBuilding(state, x, z, margin) {
-  for (const b of state.city.buildings) {
-    if (x > b.minX - margin && x < b.maxX + margin
-      && z > b.minZ - margin && z < b.maxZ + margin) return true;
-  }
-  return false;
-}
-
-// Circle (radius PED_RADIUS) vs building AABB push-out, same approach as
-// the player collision: nearest point on the box, push out along the
-// delta; if the centre is inside, push out along the smallest
-// penetration. Mutates pos. Returns true if a push happened.
-function pushOutOfBuildings(state, pos) {
-  let pushed = false;
-  for (const b of state.city.buildings) {
-    const nx = Math.max(b.minX, Math.min(pos.x, b.maxX));
-    const nz = Math.max(b.minZ, Math.min(pos.z, b.maxZ));
-    const dx = pos.x - nx;
-    const dz = pos.z - nz;
-    const d2 = dx * dx + dz * dz;
-    if (d2 >= PED_RADIUS * PED_RADIUS) continue;
-    if (d2 > 1e-9) {
-      const d = Math.sqrt(d2);
-      pos.x = nx + (dx / d) * PED_RADIUS;
-      pos.z = nz + (dz / d) * PED_RADIUS;
-    } else {
-      // Centre inside the box: exit along the smallest penetration.
-      const left = pos.x - b.minX;
-      const right = b.maxX - pos.x;
-      const top = pos.z - b.minZ;
-      const bottom = b.maxZ - pos.z;
-      const m = Math.min(left, right, top, bottom);
-      if (m === left) pos.x = b.minX - PED_RADIUS;
-      else if (m === right) pos.x = b.maxX + PED_RADIUS;
-      else if (m === top) pos.z = b.minZ - PED_RADIUS;
-      else pos.z = b.maxZ + PED_RADIUS;
-    }
-    pushed = true;
-  }
-  return pushed;
-}
-
-// A fixed spot (e.g. the spawn cluster) that lands inside a building is
-// nudged to the nearest valid spot: try the spot itself, then offsets in
-// 2 m steps out to 20 m along each axis and diagonal. The road is never
-// more than ~13 m from a sidewalk spot, so a valid spot is always found.
-function settlePedSpot(state, x, z) {
-  if (!isInBuilding(state, x, z, PED_RADIUS)) return { x, z };
-  const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]];
-  for (let r = 2; r <= 20; r += 2) {
-    for (const [dx, dz] of dirs) {
-      const nx = x + dx * r;
-      const nz = z + dz * r;
-      if (!isInBuilding(state, nx, nz, PED_RADIUS)) return { x: nx, z: nz };
-    }
-  }
-  return { x, z };
-}
-
 // --- Road helpers ----------------------------------------------------------
 export function pickRoad(rng, lines) {
   return {
@@ -228,31 +162,17 @@ function spawnParkedCar(state, scene, rng, fixed) {
 
 function sidewalkSpot(state, rng) {
   const half = state.city.half;
-  // A sidewalk spot 8.5-12.5 m off a road centreline can overlap a
-  // building edge (blocks sit 9 m or more from the line), so reject any
-  // spot inside a building footprint and roll another one instead.
-  for (let tries = 0; tries < 16; tries += 1) {
-    const centre = isCentreSpawn(rng);
-    const axis = rng() < 0.5 ? 'x' : 'z';
-    const lines = centre
-      ? state.city.roadLines.filter((c) => Math.abs(c) <= CENTRE_LINE)
-      : state.city.roadLines;
-    const line = randPick(rng, lines.length > 0 ? lines : state.city.roadLines);
-    const along = biasedAlong(rng, half, 10, centre);
-    const side = rng() < 0.5 ? 1 : -1;
-    const offset = ROAD_HALF + 2.5 + rng() * 4; // 8.5 - 12.5 m off the centreline
-    const spot = axis === 'x'
-      ? { x: along, z: line + side * offset }
-      : { x: line + side * offset, z: along };
-    if (!isInBuilding(state, spot.x, spot.z, PED_RADIUS)) return spot;
-  }
-  // Fallback: a road shoulder spot — 6.5 m off a centreline, inside the
-  // road strip, where no building footprint can reach.
-  const line = randPick(rng, state.city.roadLines);
-  const along = randRange(rng, -half + 10, half - 10);
+  const centre = isCentreSpawn(rng);
+  const axis = rng() < 0.5 ? 'x' : 'z';
+  const lines = centre
+    ? state.city.roadLines.filter((c) => Math.abs(c) <= CENTRE_LINE)
+    : state.city.roadLines;
+  const line = randPick(rng, lines.length > 0 ? lines : state.city.roadLines);
+  const along = biasedAlong(rng, half, 10, centre);
   const side = rng() < 0.5 ? 1 : -1;
-  if (rng() < 0.5) return { x: along, z: line + side * (ROAD_HALF + 0.5) };
-  return { x: line + side * (ROAD_HALF + 0.5), z: along };
+  const offset = ROAD_HALF + 2.5 + rng() * 4; // 8.5 - 12.5 m off the centreline
+  if (axis === 'x') return { x: along, z: line + side * offset };
+  return { x: line + side * offset, z: along };
 }
 
 // Shared ped geometries; materials cached per colour.
@@ -278,9 +198,7 @@ function getPedShared() {
 
 function spawnPed(state, scene, rng, fixedSpot) {
   const s = getPedShared();
-  const spot = fixedSpot
-    ? settlePedSpot(state, fixedSpot.x, fixedSpot.z)
-    : sidewalkSpot(state, rng);
+  const spot = fixedSpot ?? sidewalkSpot(state, rng);
   const group = new THREE.Group();
   const shirt = s.mat(randPick(rng, PED_SHIRTS));
   const pants = s.mat(randPick(rng, PED_PANTS));
@@ -549,10 +467,6 @@ function updatePed(state, ped, dt, rng) {
       ped.pos.z = Math.max(-half - 10, Math.min(half + 50, ped.pos.z));
     }
 
-    // Building collision: never walk through a wall — push back out so
-    // the ped slides along it instead of ending up inside.
-    pushOutOfBuildings(state, ped.pos);
-
     // Hit by the player's car: knocked down, +1 wanted (once per hit —
     // the ped is 'down' afterwards, so it cannot re-trigger until it
     // gets up).
@@ -637,28 +551,24 @@ function respawnTrafficCar(state, t, rng) {
 function respawnPed(state, ped, rng) {
   const spot = bubbleSpot(state, rng);
   if (!spot) return false;
-  for (let tries = 0; tries < 8; tries += 1) {
-    const side = rng() < 0.5 ? 1 : -1;
-    const offset = ROAD_HALF + 2.5 + rng() * 4;
-    let x;
-    let z;
-    if (spot.road.axis === 'x') {
-      x = spot.x;
-      z = spot.road.line + side * offset;
-    } else {
-      x = spot.road.line + side * offset;
-      z = spot.z;
-    }
-    if (Math.hypot(x - state.player.pos.x, z - state.player.pos.z) < RESPAWN_FLOOR) continue;
-    if (isInBuilding(state, x, z, PED_RADIUS)) continue;
-    ped.pos.set(x, 0, z);
-    ped.heading = randRange(rng, 0, Math.PI * 2);
-    ped.stateTimer = randRange(rng, 2, 8);
-    ped.mesh.position.copy(ped.pos);
-    ped.mesh.rotation.y = ped.heading;
-    return true;
+  const side = rng() < 0.5 ? 1 : -1;
+  const offset = ROAD_HALF + 2.5 + rng() * 4;
+  let x;
+  let z;
+  if (spot.road.axis === 'x') {
+    x = spot.x;
+    z = spot.road.line + side * offset;
+  } else {
+    x = spot.road.line + side * offset;
+    z = spot.z;
   }
-  return false;
+  if (Math.hypot(x - state.player.pos.x, z - state.player.pos.z) < RESPAWN_FLOOR) return false;
+  ped.pos.set(x, 0, z);
+  ped.heading = randRange(rng, 0, Math.PI * 2);
+  ped.stateTimer = randRange(rng, 2, 8);
+  ped.mesh.position.copy(ped.pos);
+  ped.mesh.rotation.y = ped.heading;
+  return true;
 }
 
 export function updateTraffic(state, dt) {

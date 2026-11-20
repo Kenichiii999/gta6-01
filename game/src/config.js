@@ -61,7 +61,7 @@ export const CAMERA = {
   dist: 9,
   minDist: 4,
   maxDist: 20,
-  pitch: 0.12,
+  pitch: 0.42,
   minPitch: 0.08,
   maxPitch: 1.1,
   fov: 60,

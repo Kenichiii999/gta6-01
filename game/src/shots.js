@@ -151,15 +151,11 @@ function stageCity(state) {
   state.time = 0;
   completeMissionOne(state); // cash $500, mission 2 to start below
   startMission(state, 1); // Payday Pickup — beacon at the tower drop
-  // Start close to the tower (~68 m west of it) and drive a short
-  // burst east, so the car stops ~60 m short of the tower instead of
-  // ~90 m: from 90 m out the tower's west-face sign reads as a sliver
-  // behind the foreground block, but from ~60 m the west face reads
-  // nearly head-on — and the sign sits low enough in the frame to
-  // clear the HUD row. The drop at (0,24) stays ~60 m away, so it is
-  // never collected and the beacon stays on the tower.
-  putPlayerInCar(state, -68, 39, Math.PI / 2);
-  simulate(state, 60, { x: 0, z: 36 });
+  putPlayerInCar(state, -180, 39, Math.PI / 2);
+  // Drive 4 s straight east along the road toward the tower so it
+  // looms large ahead (the car stops ~90 m short — the drop at (0,24)
+  // is never reached, so the beacon stays on the tower).
+  simulate(state, 240, { x: 0, z: 36 });
   // Busy street: pull traffic and pedestrians onto the road ahead of
   // the car so the cover shows a living street, not an empty road.
   const p = state.player.pos;
@@ -191,13 +187,9 @@ function stageCity(state) {
   });
   simulateAmbient(state, 20);
   const h = state.player.heading;
-  // Near-level camera (pitch ~0.06) swung ~20° toward the tower
-  // (north): the car stays centre-frame while the tower — and its
-  // neon sign at ~29 m — sit in frame left of it. The old
-  // straight-behind framing put the tower at the frame edge, half
-  // hidden behind the foreground block; a steeper pitch would push
-  // the sign above the frame top from this closer viewpoint.
-  frameCamera(state, h + Math.PI + 0.35, 0.06, 12);
+  // Level camera (pitch ~0.12): the tower's neon sign sits ~28 m up,
+  // and the old steep chase pitch put it above the frame top.
+  frameCamera(state, h + Math.PI, 0.12, 12);
   hideBanner(state);
   hideHint(state);
   state.shakeTime = 0;
@@ -212,9 +204,9 @@ function stageStreet(state) {
   state.screen = SCREEN_PLAY;
   state.time = 0;
   // Danny already delivered the stolen car (+$500) and stepped out in
-  // front of the garage; mission 1 is live.
+  // front of the garage; mission 2 is live.
   completeMissionOne(state);
-  startMission(state, 0); // First Wheels — cash $500 on the HUD
+  startMission(state, 1); // Payday Pickup — cash $500 on the HUD
   state.player.pos.set(-144, 0, -108);
   state.player.heading = Math.PI;
   if (state.player.mesh) {
@@ -290,25 +282,18 @@ function stageHeist(state) {
   completeMissionOne(state); // cash $500
   startMission(state, 4); // Bay Heist — beacon at the bank
   // On the z=180 road south of the bank, nose toward the bank front
-  // (about 14 m short of it, so mission step 0 does not advance).
+  // (20 m short of it, so mission step 0 does not advance).
   putPlayerInCar(state, 144, 186, Math.PI);
   addWanted(state, 1, 'stolen car');
-  // Drive 1 s up the road toward the bank so the player car ends up
-  // on the road itself (not on the plaza block south of it): the shot
-  // camera then sits over the road, and the frame below the cars is
-  // street, not empty plaza.
-  simulate(state, 60, { x: 144, z: 170 });
+  simulate(state, 30, { x: 144, z: 170 });
   // Bring the spawned police car into the frame: a black-and-white
-  // right beside the player car, closing on the bank front just ahead
-  // of the player, between the camera and the beacon. Placed after the
-  // drive so it stays in frame.
-  placePoliceCars(state, [{ x: 140, z: 172, heading: Math.PI, speed: 10 }]);
+  // converging on the bank front just ahead of the player, between the
+  // camera and the beacon. Placed after the drive so it stays in frame.
+  placePoliceCars(state, [{ x: 138, z: 170, heading: Math.PI, speed: 10 }]);
   simulateAmbient(state, 20);
-  // Close and levelled (dist 12, pitch ~0.10): the player car and the
-  // police car fill the frame at roughly twice their R3 size, the bank
-  // roofline — and the beacon pillar rising from it — still fit inside
-  // it, and the plaza is a thin strip beyond the road.
-  frameCamera(state, 0, 0.1, 12);
+  // Pulled back and levelled so the bank roofline — and the beacon
+  // pillar rising from it — fit inside the frame.
+  frameCamera(state, 0, 0.12, 28);
   hideBanner(state);
   hideHint(state);
   state.shakeTime = 0;
