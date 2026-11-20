@@ -57,6 +57,13 @@ export function createPlayer(state, scene) {
   let walkPhase = 0;
   const half = state.city.half;
   const limit = half + 56; // 380; the ocean is the wall
+  // Spawn facing (slice U2): a fresh start puts the player at the garage
+  // front facing north, into the garage wall. On the first play update
+  // only — and only when the player is still at that exact spawn spot
+  // facing north — turn them to face south down the road, camera behind,
+  // so the first frame shows road, cars and pedestrians. A save reload
+  // elsewhere is untouched.
+  let spawnTurnDone = false;
 
   // Circle (radius PLAYER.radius) vs every building AABB, one pass each:
   // push out along the delta to the nearest point; if the centre is inside
@@ -94,6 +101,21 @@ export function createPlayer(state, scene) {
 
   function update(dt, axes, running, camYaw) {
     const player = state.player;
+    if (!spawnTurnDone) {
+      spawnTurnDone = true;
+      const garage = state.city.landmarks.garage;
+      if (garage
+        && Math.abs(player.pos.x - garage.pos.x) < 0.01
+        && Math.abs(player.pos.z - (garage.pos.z + 18)) < 0.01) {
+        let diff = Math.PI - player.heading;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        if (Math.abs(diff) < 0.01) {
+          player.heading = 0; // south, down the road
+          state.camera.yaw = Math.PI; // camera behind, to the north
+        }
+      }
+    }
     const hasInput = axes.x !== 0 || axes.y !== 0;
     const targetSpeed = hasInput ? (running ? PLAYER.runSpeed : PLAYER.walkSpeed) : 0;
     const maxDelta = PLAYER.accel * dt;

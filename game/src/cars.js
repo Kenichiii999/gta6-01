@@ -365,11 +365,64 @@ export function updateDrive(state, dt, input) {
   car._fwdZ = fz;
 
   // Collisions: buildings bounce the car back and cost 1 health.
-  if (collideBuildings(state, car)) {
+  const hitBuilding = collideBuildings(state, car);
+  if (hitBuilding) {
     car.speed *= -0.25;
     car.health = Math.max(0, car.health - 1);
   }
   collideOtherCars(state, car);
+
+  // Stuck nudge: driving with the throttle held, speed near zero, pinned
+  // against a building for ~1 s. Back the car out ~3 m and yaw it away
+  // from the wall so driving off works instead of wedging forever.
+  // ~2 s cooldown so it cannot fire repeatedly. The moment is recorded
+  // in the game state (state.lastStuckNudgeAt) for the HUD hint.
+  if ((car._stuckCooldown ?? 0) > 0) car._stuckCooldown -= dt;
+  if (hitBuilding && axes.y > 0 && Math.abs(car.speed) < 0.5) {
+    car._stuckTime = (car._stuckTime ?? 0) + dt;
+  } else {
+    car._stuckTime = 0;
+  }
+  if ((car._stuckTime ?? 0) >= 1 && (car._stuckCooldown ?? 0) <= 0) {
+    // Direction from the wall to the car: the nearest building face.
+    let wx = 0;
+    let wz = 0;
+    let bestDistSq = Infinity;
+    for (const b of state.city.buildings) {
+      const nx = Math.max(b.minX, Math.min(car.pos.x, b.maxX));
+      const nz = Math.max(b.minZ, Math.min(car.pos.z, b.maxZ));
+      const dx = car.pos.x - nx;
+      const dz = car.pos.z - nz;
+      const dSq = dx * dx + dz * dz;
+      if (dSq < bestDistSq) {
+        bestDistSq = dSq;
+        wx = dx;
+        wz = dz;
+      }
+    }
+    // Back out ~3 m along the car's reverse, then yaw away from the wall.
+    // (fx/fz are the car's forward from the move step above.)
+    car.pos.x -= fx * 3;
+    car.pos.z -= fz * 3;
+    if (bestDistSq > 0.000001) {
+      // Yaw toward facing away from the wall. A head-on wedge needs a
+      // big turn: a small yaw would still point back at the wall, so allow
+      // up to ~1.9 rad so the car ends up driving away from it.
+      const away = Math.atan2(wx, wz);
+      let diff = away - car.heading;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      car.heading += Math.max(-1.9, Math.min(1.9, diff));
+    } else {
+      car.heading += 0.9;
+    }
+    car.speed = 0;
+    car.steering = 0;
+    car._stuckTime = 0;
+    car._stuckCooldown = 2;
+    state.lastStuckNudgeAt = state.time;
+    state.stuckNudgeCount = (state.stuckNudgeCount ?? 0) + 1;
+  }
 
   // World bounds: same as on foot (the ocean is the wall).
   const half = state.city.half;
