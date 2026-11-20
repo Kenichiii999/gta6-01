@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { CAMERA, PALETTE } from './config.js';
 import { makeSkyTexture } from './textures.js';
+import { updateSignage } from './signage.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
@@ -18,7 +19,7 @@ export function createRenderer(canvas) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMappingExposure = 1.12;
 
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(PALETTE.fog, 120, 900);
@@ -111,8 +112,13 @@ export function createRenderer(canvas) {
     sky.position.set(camera.position.x, 0, camera.position.z);
   }
 
-  // Paint one frame: drift the clouds, then render the scene.
+  // Paint one frame: build the neon signage once (lazily, on the first
+  // frame that has a city — a failure there must never break the frame),
+  // drift the clouds, then render the scene.
   function draw(state) {
+    try {
+      if (state) updateSignage(state, scene);
+    } catch { /* signage must never break a frame */ }
     updateClouds(1 / 60);
     renderer.render(scene, camera);
   }

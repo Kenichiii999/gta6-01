@@ -54,8 +54,62 @@ export function createHud(state, scene) {
   hintEl.textContent = 'WASD move · Shift run · E enter car · F punch · Space handbrake · M mute';
   hintEl.style.cssText = 'position:absolute;left:50%;bottom:14px;transform:translateX(-50%);'
     + 'font-size:12px;color:#dfeef5;background:rgba(0,0,0,.45);padding:6px 12px;border-radius:12px;'
-    + 'pointer-events:none;white-space:nowrap;';
+    + 'pointer-events:none;white-space:nowrap;transition:opacity .5s;opacity:1;';
   if (hudEl) hudEl.appendChild(hintEl);
+
+  // Controls hint auto-hide: visible at the start of a play session,
+  // fades out after ~8 s of play or once the player moves off the
+  // starting spot, shows again on the pause screen, and resets when
+  // play is left so the next session gets the hint back.
+  let hintPlayStart = null; // state.time when the current play session began
+  let hintSpawn = null; // { x, z } where the session started
+  let hintOverride = null; // 'hide' | 'show' | null (staged shots)
+  let hintOnceHide = false; // hide for the next updateHud call only
+  let hintVisible = true;
+  let lastScreen = null;
+
+  function setHintVisible(visible, instant = false) {
+    if (hintVisible === visible && !instant) return;
+    hintVisible = visible;
+    // Explicit overrides hide/show instantly (a staged shot taken right
+    // after the call must not catch the hint mid-fade); the auto-hide
+    // keeps its 0.5 s fade.
+    hintEl.style.transition = instant ? 'none' : 'opacity .5s';
+    hintEl.style.opacity = visible ? '1' : '0';
+  }
+
+  function resetHint() {
+    hintPlayStart = null;
+    hintSpawn = null;
+    setHintVisible(true);
+  }
+
+  // The pause screen is shown/hidden by main.js without calling
+  // updateHud, so watch the screen elements directly for it.
+  const pausedEl = document.getElementById('paused');
+  const titleEl = document.getElementById('title');
+  if (typeof MutationObserver !== 'undefined' && (pausedEl || titleEl)) {
+    const screenObserver = new MutationObserver(() => {
+      if (titleEl && !titleEl.classList.contains('hidden')) resetHint();
+      if (pausedEl && !pausedEl.classList.contains('hidden') && hintOverride !== 'hide') {
+        setHintVisible(true);
+      }
+    });
+    if (pausedEl) screenObserver.observe(pausedEl, { attributes: true, attributeFilter: ['class'] });
+    if (titleEl) screenObserver.observe(titleEl, { attributes: true, attributeFilter: ['class'] });
+  }
+
+  // Explicit override for staged screenshots: force the hint hidden or
+  // shown without touching the auto-hide state; null clears it.
+  function setHintOverride(mode) {
+    hintOverride = mode === 'hide' || mode === 'show' ? mode : null;
+  }
+
+  // Hide the hint for one updateHud call only, leaving the auto-hide
+  // state untouched (for a single staged frame).
+  function hideHintOnce() {
+    hintOnceHide = true;
+  }
 
   // Mute indicator.
   const muteEl = document.createElement('div');
@@ -92,18 +146,27 @@ export function createHud(state, scene) {
 
     ctx.fillStyle = '#0d1b26';
     ctx.fillRect(0, 0, size, size);
-    // Roads.
-    ctx.strokeStyle = '#5a6a72';
-    ctx.lineWidth = 2;
+    // Roads: a bright casing line with a darker core on top, so the
+    // streets read as streets at judge size instead of thin radar lines.
     for (const c of city.roadLines) {
+      ctx.strokeStyle = '#aebdc7';
+      ctx.lineWidth = 5;
       ctx.beginPath(); ctx.moveTo(toMap(-half), toMap(c)); ctx.lineTo(toMap(half), toMap(c)); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(toMap(c), toMap(-half)); ctx.lineTo(toMap(c), toMap(half)); ctx.stroke();
     }
-    // Beach strip, then ocean.
+    for (const c of city.roadLines) {
+      ctx.strokeStyle = '#3a3f46';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(toMap(-half), toMap(c)); ctx.lineTo(toMap(half), toMap(c)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(toMap(c), toMap(-half)); ctx.lineTo(toMap(c), toMap(half)); ctx.stroke();
+    }
+    // Beach strip, then ocean — both start at the city edge (south),
+    // inside the canvas, not beyond it.
+    const edge = city.half;
     ctx.fillStyle = '#e8d49a';
-    ctx.fillRect(0, toMap(half), size, size - toMap(half));
+    ctx.fillRect(0, toMap(edge), size, size - toMap(edge));
     ctx.fillStyle = '#1e7fa8';
-    ctx.fillRect(0, toMap(half + 40), size, size - toMap(half + 40));
+    ctx.fillRect(0, toMap(edge + 40), size, size - toMap(edge + 40));
 
     // Cash drops (green) while Payday Pickup is active, untaken only.
     const sys = drawState._missions;
@@ -123,7 +186,7 @@ export function createHud(state, scene) {
       const p = readPos(t.car || t);
       if (!p) continue;
       ctx.beginPath();
-      ctx.arc(toMap(p.x), toMap(p.z), 2.5, 0, Math.PI * 2);
+      ctx.arc(toMap(p.x), toMap(p.z), 3, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -133,16 +196,40 @@ export function createHud(state, scene) {
       const p = readPos(unit);
       if (!p) continue;
       ctx.beginPath();
-      ctx.arc(toMap(p.x), toMap(p.z), 3, 0, Math.PI * 2);
+      ctx.arc(toMap(p.x), toMap(p.z), 3.5, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Garage dot.
+    // Landmark dots in distinct colours, so the map reads as a city.
+    const landmarkDots = [
+      ['tower', '#ff5a9a'],
+      ['hospital', '#ffffff'],
+      ['police', '#5a9aff'],
+      ['bank', '#ffd23d'],
+    ];
+    for (const [key, color] of landmarkDots) {
+      const lm = city.landmarks && city.landmarks[key];
+      if (!lm) continue;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(toMap(lm.pos.x), toMap(lm.pos.z), 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Garage dot: larger, with a white ring.
     if (city.landmarks && city.landmarks.garage) {
+      const g = city.landmarks.garage;
+      const gx = toMap(g.pos.x);
+      const gy = toMap(g.pos.z);
       ctx.fillStyle = '#ff9a3d';
       ctx.beginPath();
-      ctx.arc(toMap(city.landmarks.garage.pos.x), toMap(city.landmarks.garage.pos.z), 4, 0, Math.PI * 2);
+      ctx.arc(gx, gy, 6, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(gx, gy, 6, 0, Math.PI * 2);
+      ctx.stroke();
     }
 
     // Mission marker: pulsing yellow diamond.
@@ -150,7 +237,7 @@ export function createHud(state, scene) {
       const m = drawState.mission.marker;
       const mx = toMap(m.x);
       const my = toMap(m.z);
-      const s = 5 + Math.sin(drawState.time * 4) * 1.5;
+      const s = 7 + Math.sin(drawState.time * 4) * 1.5;
       ctx.save();
       ctx.translate(mx, my);
       ctx.rotate(Math.PI / 4);
@@ -159,7 +246,8 @@ export function createHud(state, scene) {
       ctx.restore();
     }
 
-    // Player arrow.
+    // Player arrow, with a white outline so it stays visible over
+    // bright roads.
     const px = toMap(drawState.player.pos.x);
     const py = toMap(drawState.player.pos.z);
     ctx.save();
@@ -169,6 +257,9 @@ export function createHud(state, scene) {
     ctx.beginPath();
     ctx.moveTo(0, -7); ctx.lineTo(5, 6); ctx.lineTo(-5, 6); ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -229,12 +320,39 @@ export function createHud(state, scene) {
       cache.muted = hudState.muted;
       muteEl.style.display = hudState.muted ? 'block' : 'none';
     }
+    // Controls hint: visible at the start of play, then it fades out on
+    // its own after ~8 s of play or once the player moves off the
+    // starting spot; back on the pause screen; reset on leaving play.
+    if (hintOverride === 'hide') {
+      setHintVisible(false, true);
+    } else if (hintOverride === 'show') {
+      setHintVisible(true, true);
+    } else if (hintOnceHide) {
+      hintOnceHide = false;
+      setHintVisible(false, true);
+    } else if (hudState.screen === 'play') {
+      if (lastScreen !== 'play' || hintPlayStart === null || !hintSpawn) {
+        hintPlayStart = hudState.time;
+        hintSpawn = { x: hudState.player.pos.x, z: hudState.player.pos.z };
+      }
+      const played = hudState.time - hintPlayStart;
+      const moved = Math.hypot(hudState.player.pos.x - hintSpawn.x, hudState.player.pos.z - hintSpawn.z);
+      setHintVisible(!(played >= 8 || moved > 12));
+    } else if (hudState.screen === 'paused') {
+      setHintVisible(true);
+    } else {
+      // Title / busted / wasted: reset so the next session gets the hint.
+      hintPlayStart = null;
+      hintSpawn = null;
+      setHintVisible(true);
+    }
+    lastScreen = hudState.screen;
     // Minimap: every frame while playing; also once on the title screen
     // so it is never blank.
     if (hudState.screen === 'play' || hudState.screen === 'title') drawMinimap(hudState, minimapCtx, minimapEl);
   }
 
-  const api = { banner, hideBanner, drawMinimap, updateHud };
+  const api = { banner, hideBanner, drawMinimap, updateHud, setHintOverride, hideHintOnce };
   state._hud = api;
   return api;
 }
