@@ -20,6 +20,8 @@ import { createCity } from './city.js';
 import { createPlayer } from './player.js';
 import { createTraffic, updateTraffic } from './traffic.js';
 import { handleCarInteract, updateDrive } from './cars.js';
+import { createPolice, updatePolice } from './police.js';
+import { updateCombat } from './combat.js';
 import { loadSave, saveGame } from './save.js';
 import { stageShot } from './shots.js';
 
@@ -90,9 +92,10 @@ const state = {
 const player = createPlayer(state, renderer.scene);
 window.__game = state;
 
-// Slice B: vehicles + traffic. (Slices C/D add createPolice /
+// Slice B: vehicles + traffic. Slice C: police + combat. (Slice D adds
 // createMissions / createHud / createAudio here, in that order.)
 createTraffic(state, renderer.scene);
+createPolice(state, renderer.scene);
 
 // --- HUD (slice-A skeleton) ------------------------------------------------
 // Slice D replaces this whole section with hud.js (banner, speed, mute
@@ -252,11 +255,13 @@ function runGame() {
     }
     // E-key: enter / exit a car ('entered' | 'exited' | 'too-fast' | null).
     if (frameActions & ACTION_INTERACT) handleCarInteract(state);
-    // EXTENSION POINT (slice C): updateCombat(state, STEP, frameActions) —
-    // must run AFTER player.update(), because the punch lunge offsets the
-    // player mesh and player.update() re-asserts the mesh position.
+    // Slice C: the punch. Must run AFTER player.update(), because the
+    // punch lunge offsets the player mesh and player.update() re-asserts
+    // the mesh position every step.
+    updateCombat(state, STEP, frameActions);
     updateTraffic(state, STEP);
-    // EXTENSION POINT (slice C): updatePolice(state, STEP).
+    // Slice C: police chase / arrest / busted / wasted.
+    updatePolice(state, STEP);
     // EXTENSION POINT (slice D): updateMissions(state, STEP).
     // EXTENSION POINT (slice D): updateAudio(state, STEP).
 
