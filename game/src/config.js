@@ -56,12 +56,15 @@ export const PLAYER = {
   turnRate: 12,
 };
 
-// Third-person orbit camera tuning.
+// Third-person orbit camera tuning. Default pitch is near-level (0.12):
+// the old steep 0.42 pitch filled the spawn frame with empty sidewalk,
+// while 0.12 keeps the horizon, street and buildings in view from the
+// first frame and still shows the road ahead while driving.
 export const CAMERA = {
   dist: 9,
   minDist: 4,
   maxDist: 20,
-  pitch: 0.42,
+  pitch: 0.12,
   minPitch: 0.08,
   maxPitch: 1.1,
   fov: 60,
