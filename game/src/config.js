@@ -1,61 +1,85 @@
-// Every tuning number and colour in one place. The playfield is a fixed 1280x720 logical area;
-// the renderer scales it to the window, so no rule below depends on the screen size.
+// Neon Bay — every shared constant, palette, tuning number and key binding.
+// Nothing in here is computed at runtime; every other module reads from here
+// so the numbers the game agrees on live in exactly one place.
 
-export const FIELD = { width: 1280, height: 720, groundY: 664 };
-
-/** The simulation's fixed step, in seconds: 60 updates a second whatever the display's rate. */
+// The simulation's fixed step, in seconds: 60 updates a second whatever
+// the display's rate.
 export const STEP = 1 / 60;
 
-export const PLAYER = {
-  width: 72,
-  height: 24,
-  speed: 560,
-  invulnerable: 1.5,
+// localStorage key for the single save slot.
+export const SAVE_KEY = 'neon-bay.save.v1';
+
+// City geometry: 9 blocks of 60 m separated by 12 m roads, on a 72 m pitch.
+export const CITY = {
+  blocks: 9,
+  block: 60,
+  road: 12,
+  get pitch() { return this.block + this.road; }, // 72
+  get half() { return (this.blocks * this.pitch) / 2; }, // 324
+  minBuildingHeight: 8,
+  maxBuildingHeight: 40,
+  towerHeight: 88,
 };
-
-export const LIVES = 3;
-
-export const BLOCK = {
-  minWidth: 40,
-  maxWidth: 110,
-  height: 36,
-  speed: 240,
-  speedPerLevel: 30,
-  speedJitter: 90,
-  interval: 0.55,
-  intervalScale: 0.88,
-  minInterval: 0.14,
-  dodgePoints: 1,
-};
-
-export const COIN = {
-  size: 24,
-  speed: 190,
-  speedPerLevel: 14,
-  interval: 1.4,
-  intervalJitter: 0.8,
-  points: 10,
-};
-
-/** Seconds of play per level, and the last level: speeds and spawn rates stop growing there. */
-export const LEVEL = { seconds: 12, max: 12 };
-
-/** How many falling things can exist at once; the pool is allocated once, at boot. */
-export const POOL_SIZE = 64;
 
 export const PALETTE = {
-  backdrop: '#11141b',
-  sky: '#1b1f2a',
-  ground: '#2a3040',
-  player: '#4fc3f7',
-  block: '#e5534b',
-  coin: '#f2c94c',
-  panel: '#252b38',
-  text: '#eef1f5',
-  muted: '#8b93a3',
+  skyTop: 0x3d8fd1,
+  skyBottom: 0xbfe6f5,
+  fog: 0xa8d4e8,
+  sun: 0xffe3b3,
+  sunIntensity: 2.6,
+  hemiSky: 0xbfd9ff,
+  hemiGround: 0x8a7a5f,
+  hemiIntensity: 0.9,
+  road: 0x3a3f46,
+  sidewalk: 0xb9b3a4,
+  sand: 0xe8d49a,
+  ocean: 0x1e7fa8,
+  oceanDeep: 0x0e5a80,
+  grass: 0x7fae62,
+  facades: [0xf2c9a0, 0xf5e6c8, 0xa8d0d8, 0xf2a7a7, 0xc9d6a3, 0xe8d5f2, 0xf7f3e8, 0x9fc3e8],
+  roofs: [0x6b5a4a, 0x7a6a58, 0x5a6a72, 0x8a7a6a],
+  landmark: {
+    tower: 0x2e4a6b,
+    hospital: 0xf2f2f2,
+    police: 0x2f4a7a,
+    garage: 0xd97b2f,
+    bank: 0xc9a227,
+  },
 };
 
-export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+// On-foot player tuning (speeds in m/s).
+export const PLAYER = {
+  walkSpeed: 5,
+  runSpeed: 9,
+  radius: 0.55,
+  accel: 40,
+  turnRate: 12,
+};
 
-/** Where the best score is kept between visits (this browser only). */
-export const BEST_KEY = 'block-dodger.best';
+// Third-person orbit camera tuning.
+export const CAMERA = {
+  dist: 9,
+  minDist: 4,
+  maxDist: 20,
+  pitch: 0.42,
+  minPitch: 0.08,
+  maxPitch: 1.1,
+  fov: 60,
+  near: 0.1,
+  far: 1600,
+};
+
+// Key bindings, by KeyboardEvent.code. There is no C (camera) or R (reset)
+// key: the game ships exactly these bindings.
+export const KEYS = {
+  up: ['KeyW', 'ArrowUp'],
+  down: ['KeyS', 'ArrowDown'],
+  left: ['KeyA', 'ArrowLeft'],
+  right: ['KeyD', 'ArrowRight'],
+  run: ['ShiftLeft', 'ShiftRight'],
+  interact: ['KeyE'],
+  punch: ['KeyF'],
+  pause: ['KeyP', 'Escape'],
+  mute: ['KeyM'],
+  confirm: ['Enter', 'Space'],
+};
