@@ -18,6 +18,8 @@ import { ACTION_CONFIRM, ACTION_INTERACT, ACTION_MUTE, ACTION_PAUSE, ACTION_PUNC
 import { createRenderer, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 import { createCity } from './city.js';
 import { createPlayer } from './player.js';
+import { createTraffic, updateTraffic } from './traffic.js';
+import { handleCarInteract, updateDrive } from './cars.js';
 import { loadSave, saveGame } from './save.js';
 import { stageShot } from './shots.js';
 
@@ -87,6 +89,10 @@ const state = {
 
 const player = createPlayer(state, renderer.scene);
 window.__game = state;
+
+// Slice B: vehicles + traffic. (Slices C/D add createPolice /
+// createMissions / createHud / createAudio here, in that order.)
+createTraffic(state, renderer.scene);
 
 // --- HUD (slice-A skeleton) ------------------------------------------------
 // Slice D replaces this whole section with hud.js (banner, speed, mute
@@ -242,14 +248,14 @@ function runGame() {
     if (state.player.onFoot) {
       player.update(STEP, input.axes(), input.running(), state.camera.yaw);
     } else {
-      // EXTENSION POINT (slice B): updateDrive(state, STEP, input).
+      updateDrive(state, STEP, input);
     }
-    // EXTENSION POINT (slice B): if (frameActions & ACTION_INTERACT)
-    // handleCarInteract(state) — returns 'entered' | 'exited' | 'too-fast' | null.
+    // E-key: enter / exit a car ('entered' | 'exited' | 'too-fast' | null).
+    if (frameActions & ACTION_INTERACT) handleCarInteract(state);
     // EXTENSION POINT (slice C): updateCombat(state, STEP, frameActions) —
     // must run AFTER player.update(), because the punch lunge offsets the
     // player mesh and player.update() re-asserts the mesh position.
-    // EXTENSION POINT (slice B): updateTraffic(state, STEP).
+    updateTraffic(state, STEP);
     // EXTENSION POINT (slice C): updatePolice(state, STEP).
     // EXTENSION POINT (slice D): updateMissions(state, STEP).
     // EXTENSION POINT (slice D): updateAudio(state, STEP).
